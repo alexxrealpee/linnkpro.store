@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Represents the seller profiles and subscription parameters",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "bio": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "coverURL": { "type": "string" },
+        "role": { "type": "string" },
+        "plan": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "location": { "type": "string" },
+        "currency": { "type": "string" },
+        "suspended": { "type": "boolean" },
+        "googleAnalyticsId": { "type": "string" },
+        "whatsappMessageTemplate": { "type": "string" },
+        "subscriptionPlan": { "type": "string", "enum": ["basico", "medio", "pro"] },
+        "subscriptionStatus": { "type": "string", "enum": ["trial", "active", "pending_payment", "under_review"] },
+        "subscriptionStartDate": { "type": "string" },
+        "subscriptionTrialExpires": { "type": "string" },
+        "subscriptionPaidUntil": { "type": "string" }
+      },
+      "required": ["uid", "email", "username", "displayName"]
+    },
+    "SubscriptionPayment": {
+      "title": "SubscriptionPayment",
+      "description": "Stores bank transfer payment receipts for monthly store subscriptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "username": { "type": "string" },
+        "storeName": { "type": "string" },
+        "plan": { "type": "string", "enum": ["basico", "medio", "pro"] },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "review", "approved", "rejected"] },
+        "proofImage": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "resolvedAt": { "type": "string" },
+        "periodLabel": { "type": "string" }
+      },
+      "required": ["id", "userId", "userEmail", "plan", "amount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private auth metadata details"
+    },
+    "/profiles/{profileId}": {
+      "schema": "UserProfile",
+      "description": "Public merchant store configurations"
+    },
+    "/subscription_payments/{paymentId}": {
+      "schema": "SubscriptionPayment",
+      "description": "Monthly bank transfer transaction details"
+    }
+  }
+}
