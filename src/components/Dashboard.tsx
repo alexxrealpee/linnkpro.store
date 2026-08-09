@@ -58,6 +58,7 @@ import {
   saveProduct,
   deleteProductItem,
   fetchProductsAllState,
+  subscribeProducts,
   fetchOrders,
   saveOrder,
   deduplicateOrders,
@@ -337,36 +338,8 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
   const loadDashboardData = async () => {
     setLoadingResources(true);
     try {
-      // Load products
-      let prods = await fetchProductsAllState(profile.uid);
-      
-      // Auto-sync locally-cached products to Firestore if any are missing
-      try {
-        const localProdsKey = `linnk_products_${profile.uid}`;
-        const cachedStr = localStorage.getItem(localProdsKey);
-        if (cachedStr) {
-          const cachedProds = JSON.parse(cachedStr);
-          if (Array.isArray(cachedProds) && cachedProds.length > 0) {
-            let syncedAny = false;
-            for (const p of cachedProds) {
-              const existsInFirestore = prods.some(dbProd => dbProd.id === p.id);
-              if (!existsInFirestore) {
-                console.log(`Product "${p.name}" (ID: ${p.id}) is missing from Firestore. Auto-syncing...`);
-                const cleanProduct = { ...p, userId: profile.uid };
-                await saveProduct(cleanProduct);
-                syncedAny = true;
-              }
-            }
-            if (syncedAny) {
-              // re-fetch to confirm they've successfully loaded from Firestore
-              prods = await fetchProductsAllState(profile.uid);
-            }
-          }
-        }
-      } catch (syncErr) {
-        console.error("Auto product migration failed", syncErr);
-      }
-
+      // Load products from Firestore
+      const prods = await fetchProductsAllState(profile.uid);
       setProducts(prods);
 
       // Auto-sync locally-cached links to Firestore if any are missing
@@ -442,10 +415,11 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
     }
   }, []);
 
-  // Real-time background order subscription
+  // Real-time background subscriptions (orders and products)
   useEffect(() => {
     if (!profile.uid) return;
-    const unsubscribe = subscribeOrders(profile.uid, (ords) => {
+
+    const unsubOrders = subscribeOrders(profile.uid, (ords) => {
       if (knownOrderIdsRef.current === null) {
         // Initial load: populate known IDs without alerting
         knownOrderIdsRef.current = new Set(ords.map(o => o.id));
@@ -461,7 +435,15 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
       }
       setOrders(ords);
     });
-    return () => unsubscribe();
+
+    const unsubProducts = subscribeProducts(profile.uid, (prods) => {
+      setProducts(prods);
+    });
+
+    return () => {
+      unsubOrders();
+      unsubProducts();
+    };
   }, [profile.uid]);
 
   // Handle Tab Switch

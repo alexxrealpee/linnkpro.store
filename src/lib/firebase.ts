@@ -261,38 +261,34 @@ export async function fetchProfileByUsername(username: string): Promise<{ profil
       lSnapshot.forEach(doc => {
         links.push({ id: doc.id, ...doc.data() } as LinkItem);
       });
+      try {
+        localStorage.setItem(`linnk_links_${pDoc.id}`, JSON.stringify(links));
+      } catch (e) {}
+    } else {
+      try {
+        const localKey = `linnk_links_${pDoc.id}`;
+        const localLinks = JSON.parse(localStorage.getItem(localKey) || '[]');
+        localLinks.forEach((ll: any) => links.push(ll));
+      } catch (e) {}
     }
     // Sort in-memory to prevent missing composite index errors on other devices
     links.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    // Merge with local links in case some were saved offline/locally
-    try {
-      const localKey = `linnk_links_${pDoc.id}`;
-      const localLinks = JSON.parse(localStorage.getItem(localKey) || '[]');
-      localLinks.forEach((ll: any) => {
-        if (!links.some(l => l.id === ll.id)) {
-          links.push(ll);
-        }
-      });
-    } catch (e) {}
 
     const products: ProductItem[] = [];
     if (pSnapshot) {
       pSnapshot.forEach(doc => {
         products.push({ id: doc.id, ...doc.data() } as ProductItem);
       });
+      try {
+        localStorage.setItem(`linnk_products_${pDoc.id}`, JSON.stringify(products));
+      } catch (e) {}
+    } else {
+      try {
+        const localKey = `linnk_products_${pDoc.id}`;
+        const localProds = JSON.parse(localStorage.getItem(localKey) || '[]');
+        localProds.forEach((lp: any) => products.push(lp));
+      } catch (e) {}
     }
-
-    // Merge with local products in case some were created locally/offline
-    try {
-      const localKey = `linnk_products_${pDoc.id}`;
-      const localProds = JSON.parse(localStorage.getItem(localKey) || '[]');
-      localProds.forEach((lp: any) => {
-        if (!products.some(p => p.id === lp.id)) {
-          products.push(lp);
-        }
-      });
-    } catch (e) {}
 
     // Fetch theme
     let customTheme: CustomTheme | null = null;
@@ -781,6 +777,46 @@ export function subscribeOrders(userId: string, callback: (orders: OrderItem[]) 
     callback(deduped);
   }, (err) => {
     console.error("Error subscribing to orders:", err);
+  });
+}
+
+// REAL-TIME PRODUCTS SUBSCRIPTION
+export function subscribeProducts(userId: string, callback: (products: ProductItem[]) => void): () => void {
+  const q = query(
+    collection(db, 'products'),
+    where('userId', '==', userId)
+  );
+  return onSnapshot(q, (snapshot) => {
+    const products: ProductItem[] = [];
+    snapshot.forEach(doc => {
+      const data = doc.data() as any;
+      products.push({
+        id: doc.id,
+        userId: data.userId || userId,
+        name: data.name || 'Producto sin nombre',
+        description: data.description || '',
+        price: typeof data.price === 'number' && !isNaN(data.price) ? data.price : parseFloat(data.price) || 0,
+        compareAtPrice: data.compareAtPrice !== undefined && data.compareAtPrice !== null && !isNaN(Number(data.compareAtPrice)) ? Number(data.compareAtPrice) : undefined,
+        imageURL: data.imageURL || data.image || '',
+        category: data.category || 'General',
+        stock: typeof data.stock === 'number' && !isNaN(data.stock) ? data.stock : (parseInt(data.stock) || 0),
+        variantsText: data.variantsText || '',
+        active: data.active !== false,
+        createdAt: data.createdAt || new Date().toISOString()
+      } as ProductItem);
+    });
+    try {
+      localStorage.setItem(`linnk_products_${userId}`, JSON.stringify(products));
+    } catch (e) {}
+    callback(products);
+  }, (err) => {
+    console.error("Error subscribing to products:", err);
+    try {
+      const cached = localStorage.getItem(`linnk_products_${userId}`);
+      if (cached) {
+        callback(JSON.parse(cached));
+      }
+    } catch (e) {}
   });
 }
 
