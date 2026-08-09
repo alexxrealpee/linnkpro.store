@@ -1,0 +1,17 @@
+{
+  "name": "LinnkPro.Store - Directorio Gastronómico de Ipiales",
+  "short_name": "LinnkPro",
+  "description": "Menú gastronómico, restaurantes y tiendas en Ipiales.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090B12",
+  "theme_color": "#090B12",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

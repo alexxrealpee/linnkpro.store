@@ -28,6 +28,15 @@ body {
   background: rgba(156, 163, 175, 0.45);
 }
 
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .font-display {
   font-family: 'Space Grotesk', system-ui, sans-serif;
 }

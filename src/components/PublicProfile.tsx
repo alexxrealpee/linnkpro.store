@@ -10,8 +10,11 @@ import {
   trackPageView, 
   trackLinkClick, 
   submitContactLead,
-  saveOrder
+  saveOrder,
+  fetchSystemSettings,
+  checkIsStoreClosed
 } from '../lib/firebase';
+import { isFoodCategory, isFoodProduct } from './TiendaGeneral';
 import { 
   UserProfile, 
   LinkItem, 
@@ -19,7 +22,8 @@ import {
   CustomTheme, 
   ProductItem, 
   OrderItem,
-  LeadItem
+  LeadItem,
+  BankAccount
 } from '../types';
 import { 
   Share2, 
@@ -46,6 +50,7 @@ import {
   Trash2,
   Lock,
   Wallet,
+  Landmark,
   Truck,
   ArrowRight,
   X,
@@ -64,6 +69,55 @@ import {
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { getFontClass } from './ThemeStyles';
+
+// Custom Tiktok Icon component to match lucide-react styling
+const Tiktok = ({ className = "w-4 h-4", ...props }: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    {...props}
+  >
+    <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
+  </svg>
+);
+
+export function cleanColombianPhone(rawInput: string): string {
+  if (!rawInput) return '';
+  // 1. Remove all non-digits (spaces, dashes, parentheses, dots, etc.)
+  let digits = rawInput.replace(/\D/g, '');
+  
+  // 2. If it starts with '57' and has 12 or more digits, remove '57'
+  if (digits.startsWith('57') && digits.length >= 12) {
+    digits = digits.slice(2);
+  }
+  
+  // 3. Keep only up to 10 digits
+  return digits.slice(0, 10);
+}
+
+export function formatColombianPhoneWith57(rawInput: string): string {
+  if (!rawInput) return '';
+  let digits = rawInput.replace(/\D/g, '');
+  if (digits.startsWith('57') && digits.length >= 12) {
+    return '+57' + digits.slice(2, 12);
+  }
+  if (digits.length === 10) {
+    return '+57' + digits;
+  }
+  if (digits.length > 0 && !digits.startsWith('57')) {
+    return '+57' + digits.slice(0, 10);
+  }
+  if (digits.startsWith('57')) {
+    return '+' + digits;
+  }
+  return digits ? '+57' + digits : '';
+}
 
 interface PublicProfileProps {
   username: string;
@@ -88,18 +142,30 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   // Cart customer form details
+  const [systemDeliveryFee, setSystemDeliveryFee] = useState(7000);
   const [custName, setCustName] = useState('');
   const [custPhone, setCustPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [custEmail, setCustEmail] = useState('');
   const [custAddress, setCustAddress] = useState('');
   const [custNotes, setCustNotes] = useState('');
   const [payMethod, setPayMethod] = useState<'whatsapp' | 'transfer' | 'cod'>('whatsapp');
-  const [isLocalPickup, setIsLocalPickup] = useState(false);
   const [uploadedOrderProofBase64, setUploadedOrderProofBase64] = useState('');
+
+  // Bank details state
+  const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
+  const [expandedQRUrl, setExpandedQRUrl] = useState<string | null>(null);
+
+  const handleCopyAccountNumber = (num: string, id: string) => {
+    navigator.clipboard.writeText(num);
+    setCopiedAccountId(id);
+    setTimeout(() => setCopiedAccountId(null), 2000);
+  };
 
   // Checkout outcome modal state
   const [submittedOrder, setSubmittedOrder] = useState<OrderItem | null>(null);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const orderSubmittingRef = useRef(false);
 
   // Catalogue Active category tag
   const [selectedCategory, setSelectedCategory] = useState('Todos');
@@ -127,21 +193,59 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
 
   const qrRef = useRef<HTMLDivElement>(null);
 
-  // Filter products by tag and search query (memoized for performance)
+  // Filter products by tag and search query (food categories and products prioritized)
   const uniqueCategories: string[] = useMemo(() => {
-    return ['Todos', ...(Array.from(new Set(products.map(p => p.category || 'General'))) as string[])];
+    const rawList = Array.from(new Set(products.map(p => (p.category || 'General').trim()))) as string[];
+    const foodList = rawList.filter(c => isFoodCategory(c)).sort((a, b) => a.localeCompare(b));
+    const nonFoodList = rawList.filter(c => !isFoodCategory(c)).sort((a, b) => a.localeCompare(b));
+    return ['Todos', ...foodList, ...nonFoodList];
   }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const matchesCategory = selectedCategory === 'Todos' || (p.category || 'General') === selectedCategory;
+      const pCat = (p.category || 'General').trim();
+      const matchesCategory = selectedCategory === 'Todos' || pCat.toUpperCase() === selectedCategory.trim().toUpperCase();
       const matchesSearch = !searchQuery.trim() || 
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (p.category || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCategory && matchesSearch;
+    }).sort((a, b) => {
+      const foodA = isFoodProduct(a);
+      const foodB = isFoodProduct(b);
+      if (foodA && !foodB) return -1;
+      if (!foodA && foodB) return 1;
+      return 0;
     });
   }, [products, selectedCategory, searchQuery]);
+
+  const [visibleLimit, setVisibleLimit] = useState(8);
+
+  // Reset limit when filter / search changes
+  useEffect(() => {
+    setVisibleLimit(8);
+  }, [selectedCategory, searchQuery]);
+
+  // Infinite Scroll scroll listener
+  useEffect(() => {
+    const handleScroll = () => {
+      // Check if scrolled near the bottom of the window
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 300) {
+        setVisibleLimit(prev => {
+          if (prev < filteredProducts.length) {
+            return prev + 8;
+          }
+          return prev;
+        });
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [filteredProducts.length]);
+
+  const displayedProducts = useMemo(() => {
+    return filteredProducts.slice(0, visibleLimit);
+  }, [filteredProducts, visibleLimit]);
 
   const totalCartCost = useMemo(() => {
     return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
@@ -150,6 +254,16 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
   const totalCartUnitsCount = useMemo(() => {
     return cart.reduce((uq, item) => uq + item.quantity, 0);
   }, [cart]);
+
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const isStoreClosedNow = useMemo(() => {
+    return checkIsStoreClosed(profile);
+  }, [profile, nowTick]);
 
   useEffect(() => {
     async function loadData() {
@@ -190,6 +304,14 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
           // Track the public Page View
           trackPageView(finalProfile.uid);
         }
+
+        // Fetch system delivery fee setting
+        try {
+          const sysSettings = await fetchSystemSettings();
+          if (sysSettings?.defaultDeliveryFee) {
+            setSystemDeliveryFee(sysSettings.defaultDeliveryFee);
+          }
+        } catch (e) {}
       } catch (err) {
         console.error("Error fetching public shop storefront", err);
       } finally {
@@ -304,24 +426,40 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
   // Complete Checkout Order placement
   const handlePlaceOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || cart.length === 0) return;
-    if (!custName.trim() || !custPhone.trim()) {
-      alert("Por favor, introduce tu nombre y número de contacto");
+    if (!profile || cart.length === 0 || orderSubmittingRef.current) return;
+    
+    const cleanedPhone = cleanColombianPhone(custPhone);
+    if (!custName.trim()) {
+      alert("Por favor, introduce tu nombre completo");
       return;
     }
 
+    if (cleanedPhone.length !== 10) {
+      setPhoneError("Ingrese un número de celular colombiano válido.");
+      return;
+    }
+    setPhoneError("");
+
+    orderSubmittingRef.current = true;
     setOrderSubmitting(true);
-    const totalSum = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+    const deliveryFee = systemDeliveryFee;
+    const totalSum = subtotal + deliveryFee;
     const rNo = Math.floor(1000 + Math.random() * 9000);
+
+    const formattedPhone = formatColombianPhoneWith57(custPhone);
 
     const newOrder: OrderItem = {
       id: `order_${Date.now()}`,
       storeOwnerId: profile.uid,
+      storeName: profile.displayName || profile.username,
+      storeAddress: profile.address || profile.location || 'Dirección de la Tienda',
+      storePhone: profile.whatsapp || profile.phone,
       orderNumber: rNo,
       customerName: custName.trim(),
-      customerPhone: custPhone.trim(),
+      customerPhone: formattedPhone,
       customerEmail: custEmail.trim() || undefined,
-      customerAddress: isLocalPickup ? "Retiro en local comercial" : custAddress.trim(),
+      customerAddress: custAddress.trim(),
       items: cart.map(item => ({
         productId: item.product.id,
         name: item.product.name,
@@ -330,6 +468,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
         selectedVariant: item.selectedVariant || undefined
       })),
       totalAmount: totalSum,
+      deliveryFee: deliveryFee,
       paymentMethod: payMethod,
       notes: custNotes.trim() || undefined,
       status: 'pending',
@@ -357,6 +496,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       console.error(err);
       alert("Ocurrió un error al registrar el pedido. Intenta nuevamente.");
     } finally {
+      orderSubmittingRef.current = false;
       setOrderSubmitting(false);
     }
   };
@@ -372,6 +512,10 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       msg += `• ${item.quantity} x ${item.name}${vText} - ${profile.currency || '$'}${item.price.toLocaleString()}\n`;
     });
     msg += `-----------------------------\n`;
+    const subtotalVal = order.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+    const feeVal = order.deliveryFee ?? systemDeliveryFee;
+    msg += `Subtotal: ${profile.currency || '$'}${subtotalVal.toLocaleString()}\n`;
+    msg += `Domicilio: ${profile.currency || '$'}${feeVal.toLocaleString('es-CO')}\n`;
     msg += `Total: *${profile.currency || '$'}${order.totalAmount.toLocaleString()}*\n\n`;
     msg += `📞 Contacto: ${order.customerPhone}\n`;
     if (order.customerEmail) msg += `✉️ Email: ${order.customerEmail}\n`;
@@ -379,7 +523,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
     if (order.notes) msg += `✍️ Notas: ${order.notes}\n\n`;
     msg += `Método de pago: *${order.paymentMethod === 'whatsapp' ? 'WhatsApp Directo' : order.paymentMethod === 'transfer' ? 'Transferencia Bancaria' : 'Pago contra Entrega'}*\n`;
     if (order.proofImage) {
-      msg += `📸 *Comprobante de compra:* Adjunto en LinnkPro.shop\n`;
+      msg += `📸 *Comprobante de compra:* Adjunto en linnkpro.store\n`;
     }
     msg += `¡Espero confirmación para continuar con el pago/envío!`;
 
@@ -397,9 +541,12 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#070b14] flex items-center justify-center flex-col gap-4 text-gray-100">
-        <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent animate-spin rounded-full" />
-        <p className="text-gray-400 font-semibold animate-pulse text-sm">Cargando tienda virtual...</p>
+      <div className="min-h-screen bg-[#090B12] flex items-center justify-center flex-col gap-4 text-gray-100">
+        <div className="relative w-12 h-12 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border-4 border-[#E63946]/20 border-t-[#E63946] animate-spin" />
+          <div className="w-6 h-6 rounded-full border-2 border-[#F4B400]/30 border-b-[#F4B400] animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
+        </div>
+        <p className="text-gray-300 font-bold animate-pulse text-sm">Cargando tienda virtual...</p>
       </div>
     );
   }
@@ -418,6 +565,71 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
         >
           Reclamar @{username} Gratis
         </button>
+      </div>
+    );
+  }
+
+  if (profile.suspended || profile.subscriptionStatus === 'suspended') {
+    const whatsappContact = "3219730865";
+    const waClean = "573219730865";
+    const waMsg = encodeURIComponent(`Hola, realizo la consulta sobre el pago para reactivar mi tienda @${profile.username} (${profile.displayName || 'Tienda'}).`);
+    const waUrl = `https://wa.me/${waClean}?text=${waMsg}`;
+
+    return (
+      <div className="min-h-screen bg-[#070b14] text-gray-100 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+        {/* Ambient Glows */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-red-600/15 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[24rem] h-[24rem] bg-amber-500/15 rounded-full blur-[90px] pointer-events-none" />
+
+        <div className="max-w-md w-full bg-gray-950/90 border border-red-500/30 rounded-3xl p-8 shadow-2xl backdrop-blur-2xl relative z-10 flex flex-col items-center">
+          {/* Status Badge */}
+          <div className="p-4 bg-gradient-to-tr from-red-500/20 to-amber-500/20 border border-red-500/30 rounded-2xl mb-5 text-red-400 shadow-xl animate-pulse">
+            <AlertTriangle className="w-12 h-12 stroke-[2.2]" />
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-red-500/10 border border-red-500/20 rounded-full text-red-400 text-[11px] font-black tracking-widest uppercase mb-3">
+            <Store className="w-3.5 h-3.5" />
+            <span>TIENDA SUSPENDIDA</span>
+          </div>
+
+          <h2 className="text-2xl font-black text-white mb-1 tracking-tight">
+            {profile.displayName || `@${profile.username}`}
+          </h2>
+          <p className="text-xs text-gray-500 font-mono mb-4">@{profile.username}</p>
+
+          <div className="w-12 h-1 bg-gradient-to-r from-red-500 via-amber-500 to-red-500 rounded-full my-1" />
+
+          {/* Prompt required text */}
+          <div className="my-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+            <h3 className="text-base sm:text-lg font-black text-amber-300 leading-snug">
+              Realiza el pago de tu tienda para seguir vendiendo
+            </h3>
+            <p className="text-xs text-amber-200/80 mt-1.5 font-medium">
+              Esta tienda se encuentra suspendida temporalmente por vencimiento de suscripción.
+            </p>
+          </div>
+
+          {/* WhatsApp Contact Action Button */}
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-4 px-6 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black font-black text-sm rounded-2xl transition-all shadow-xl hover:shadow-emerald-500/20 flex items-center justify-center gap-2.5 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <MessageCircle className="w-5 h-5 fill-black stroke-none" />
+            <span>Contactar WhatsApp: {whatsappContact}</span>
+          </a>
+
+          {onNavigateHome && (
+            <button
+              type="button"
+              onClick={() => onNavigateHome()}
+              className="mt-6 text-xs text-gray-500 hover:text-gray-300 font-semibold transition"
+            >
+              ← Volver al Inicio
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -455,7 +667,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       case 'facebook': return <Facebook className={cn} />;
       case 'youtube': return <Youtube className={cn} />;
       case 'twitter': return <Twitter className={cn} />;
-      case 'tiktok': return <Music className={cn} />;
+      case 'tiktok': return <Tiktok className={cn} />;
       case 'whatsapp': return <MessageCircle className={cn} />;
       default: return <Globe className={cn} />;
     }
@@ -602,7 +814,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       }}
     >
       {/* Animated closed store banner */}
-      {profile?.isClosed && (
+      {isStoreClosedNow && (
         <div className="relative w-full bg-red-600 text-white font-black text-xs uppercase tracking-[0.2em] py-3.5 px-4 overflow-hidden z-50 flex items-center justify-center gap-2 border-b border-red-700 shadow-lg">
           <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-75 animate-pulse"></div>
           <span className="relative flex h-3 w-3 shrink-0">
@@ -611,7 +823,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
           </span>
           <span className="relative z-10 flex items-center gap-2 text-center leading-normal">
             <AlertTriangle className="w-4 h-4 animate-bounce shrink-0 text-white" />
-            <span className="animate-pulse">TIENDA CERRADA TEMPORALMENTE • NO SE ESTÁN RECIBIENDO PEDIDOS</span>
+            <span className="animate-pulse">
+              {profile?.scheduleEnabled && profile?.openTime && profile?.closeTime && !profile?.isClosed
+                ? `TIENDA CERRADA POR HORARIO (${profile.openTime} - ${profile.closeTime}) • NO SE RECIBEN PEDIDOS`
+                : 'TIENDA CERRADA TEMPORALMENTE • NO SE ESTÁN RECIBIENDO PEDIDOS'}
+            </span>
           </span>
         </div>
       )}
@@ -659,7 +875,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
               onClick={() => scrollToSection('store-category-row')} 
               className="hover:text-emerald-400 transition cursor-pointer uppercase opacity-80 hover:opacity-100"
             >
-              Colecciones
+              Categorías
             </button>
             {products.length > 0 && (
               <button 
@@ -764,15 +980,16 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 src={profile.coverURL} 
                 alt="Portada de Tienda" 
                 className="w-full h-full object-cover opacity-50 scale-105 filter contrast-125 saturate-110" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             ) : (
               <img 
                 src="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1800&q=80" 
                 alt="Sporty Collection" 
                 className="w-full h-full object-cover opacity-45 filter contrast-125" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/30" />
             <div className="absolute -left-1/4 -top-1/4 w-[150%] h-[150%] bg-gradient-to-tr from-orange-600/10 to-transparent rotate-12 pointer-events-none" />
           </div>
 
@@ -806,15 +1023,16 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 src={profile.coverURL} 
                 alt="Portada Gastronómica" 
                 className="w-full h-full object-cover opacity-55 scale-102 filter contrast-110 saturate-120" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             ) : (
               <img 
                 src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1800&q=80" 
                 alt="Delicious Gourmet Food" 
                 className="w-full h-full object-cover opacity-50 filter contrast-115" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/30" />
             <div className="absolute -right-1/4 -bottom-1/4 w-[150%] h-[150%] bg-gradient-to-bl from-amber-500/10 to-transparent pointer-events-none" />
           </div>
 
@@ -849,15 +1067,16 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 src={profile.coverURL} 
                 alt="Portada" 
                 className="w-full h-full object-cover opacity-40 filter saturate-120" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             ) : (
               <img 
                 src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1800&q=80" 
                 alt="Smartphones premium" 
                 className="w-full h-full object-cover opacity-35 filter saturate-120" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/85 to-black/75" />
           </div>
 
           <div className="relative z-10 max-w-4xl px-4 py-16 flex flex-col items-center">
@@ -890,8 +1109,8 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 src={profile.coverURL} 
                 alt="Portada de Tienda" 
                 className="w-full h-full object-cover opacity-60 filter grayscale-[20%]" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/50" />
             </div>
           ) : (
             <div className="absolute inset-0 z-0">
@@ -899,8 +1118,8 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 src="https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1800&q=80" 
                 alt="Default Banner Coleccion" 
                 className="w-full h-full object-cover opacity-50 filter grayscale-[30%]" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/50" />
             </div>
           )}
 
@@ -910,7 +1129,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
             </h1>
             
             <p className="text-xs md:text-sm font-semibold max-w-md text-gray-200 opacity-90 leading-relaxed max-w-xl mb-8 drop-shadow">
-              {profile.bio || 'Explora nuestras colecciones exclusivas para el nómada moderno. Catálogo directo con compra rápida y segura por WhatsApp.'}
+              {profile.bio || 'Explora nuestras categorías exclusivas para el nómada moderno. Catálogo directo con compra rápida y segura por WhatsApp.'}
             </p>
 
             {renderHeroSocials()}
@@ -932,7 +1151,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       >
         <div className="border-b pb-6 mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4" style={{ borderColor: activeTheme.cardBorder }}>
           <div>
-            <h2 className="text-xs font-black uppercase tracking-widest opacity-60">Filtrar por Colección</h2>
+            <h2 className="text-xs font-black uppercase tracking-widest opacity-60">Filtrar por Categoría</h2>
             <h3 className="text-xl md:text-2xl font-black mt-1">Explora las Categorías</h3>
           </div>
           <div className="text-[11px] font-bold text-gray-500">
@@ -965,7 +1184,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                   {getCategoryIcon(cat)}
                 </div>
                 <div className="flex-grow min-w-0">
-                  <span className="text-[8px] font-black uppercase text-gray-500 tracking-wider block leading-none mb-1">Colección</span>
+                  <span className="text-[8px] font-black uppercase text-gray-500 tracking-wider block leading-none mb-1">Categoría</span>
                   <span className="text-xs font-black uppercase tracking-wider block truncate text-white">{cat}</span>
                 </div>
               </button>
@@ -1012,7 +1231,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
               
               {/* Shoppable Products Feed grid (Responsive: 2 cols on mobile, 3 cols on PC, 4 cols on extra wide) */}
               <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 animate-fade-in">
-                {filteredProducts.map((p) => {
+                {displayedProducts.map((p) => {
                   const isDiscounted = p.compareAtPrice && p.compareAtPrice > p.price;
                   
                   if (storeLayout === 'shoes') {
@@ -1063,11 +1282,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                         <div className="flex items-center justify-between gap-1 mt-4 pt-3.5 border-t border-gray-900">
                           <div className="flex flex-col">
                             <span className="text-sm font-black text-white italic">
-                              {getStoreCurrency()}{p.price.toLocaleString()}
+                              {getStoreCurrency()}{Number(p.price || 0).toLocaleString()}
                             </span>
                             {p.compareAtPrice && (
                               <span className="text-[10px] text-gray-550 line-through font-bold">
-                                {getStoreCurrency()}{p.compareAtPrice.toLocaleString()}
+                                {getStoreCurrency()}{Number(p.compareAtPrice || 0).toLocaleString()}
                               </span>
                             )}
                           </div>
@@ -1138,11 +1357,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                         <div className="flex items-center justify-between gap-1 mt-3 pt-3 border-t border-stone-800/60">
                           <div className="flex flex-col">
                             <span className="text-xs font-extrabold text-white">
-                              {getStoreCurrency()}{p.price.toLocaleString()}
+                              {getStoreCurrency()}{Number(p.price || 0).toLocaleString()}
                             </span>
                             {p.compareAtPrice && (
                               <span className="text-[9px] text-gray-500 line-through">
-                                {getStoreCurrency()}{p.compareAtPrice.toLocaleString()}
+                                {getStoreCurrency()}{Number(p.compareAtPrice || 0).toLocaleString()}
                               </span>
                             )}
                           </div>
@@ -1172,9 +1391,9 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                           <span className="text-[8px] text-gray-400 font-extrabold uppercase tracking-widest">Original</span>
                         </div>
 
-                        {isDiscounted && (
+                        {isDiscounted && p.compareAtPrice && p.compareAtPrice > (p.price || 0) && (
                           <span className="absolute top-4 left-4 bg-red-600 text-white font-extrabold text-[8px] px-2.5 py-0.5 rounded-md uppercase tracking-wider z-10 shadow-sm shadow-red-500/20">
-                            -{Math.round(((p.compareAtPrice! - p.price) / p.compareAtPrice!) * 100)}% DTO
+                            -{Math.round((((p.compareAtPrice || 0) - (p.price || 0)) / (p.compareAtPrice || 1)) * 100)}% DTO
                           </span>
                         )}
 
@@ -1204,11 +1423,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                         <div className="flex items-center justify-between gap-1 mt-4 pt-3 border-t border-indigo-950/40">
                           <div className="flex flex-col">
                             <span className="text-sm font-black text-white">
-                              {getStoreCurrency()}{p.price.toLocaleString()}
+                              {getStoreCurrency()}{Number(p.price || 0).toLocaleString()}
                             </span>
                             {p.compareAtPrice && (
                               <span className="text-[10px] text-gray-500 line-through">
-                                {getStoreCurrency()}{p.compareAtPrice.toLocaleString()}
+                                {getStoreCurrency()}{Number(p.compareAtPrice || 0).toLocaleString()}
                               </span>
                             )}
                           </div>
@@ -1260,11 +1479,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                       <div className="flex items-center justify-between gap-1 mt-3">
                         <div className="flex flex-col">
                           <span className="text-xs font-black text-emerald-400">
-                            {getStoreCurrency()}{p.price.toLocaleString()}
+                            {getStoreCurrency()}{Number(p.price || 0).toLocaleString()}
                           </span>
                           {p.compareAtPrice && (
                             <span className="text-[9px] text-gray-500 line-through font-bold">
-                              {getStoreCurrency()}{p.compareAtPrice.toLocaleString()}
+                              {getStoreCurrency()}{Number(p.compareAtPrice || 0).toLocaleString()}
                             </span>
                           )}
                         </div>
@@ -1279,6 +1498,14 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                   );
                 })}
               </div>
+
+              {/* Infinite Scroll loading indicator */}
+              {visibleLimit < filteredProducts.length && (
+                <div className="w-full flex flex-col items-center justify-center py-10 gap-2.5 mt-4 border-t border-dashed border-gray-900">
+                  <div className="w-6 h-6 border-2 border-[#E63946] border-t-transparent animate-spin rounded-full" />
+                  <p className="text-[10px] text-gray-400 font-extrabold tracking-widest uppercase animate-pulse">Cargando más productos...</p>
+                </div>
+              )}
 
             </div>
           )}
@@ -1341,12 +1568,12 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
               <span className="text-[9px] font-black tracking-widest uppercase text-gray-500 block mb-1">PRO PIETARIO</span>
               <h3 className="text-base font-black" style={{ color: activeTheme.cardTextColor }}>{profile.displayName}</h3>
               <a 
-                href={`https://linnkpro.shop/${profile.username}`}
+                href={`https://linnkpro.store/${profile.username}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] font-bold text-emerald-400 hover:underline block"
               >
-                linnkpro.shop/{profile.username}
+                linnkpro.store/{profile.username}
               </a>
             </div>
           </div>
@@ -1414,7 +1641,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
         {/* Humble system credits footer */}
         <div className="text-center opacity-40 hover:opacity-100 transition-opacity z-10 mt-10 border-t border-white/5 pt-6">
           <a href={window.location.origin} className="text-[9px] font-black tracking-widest uppercase flex items-center justify-center gap-1 text-current">
-            TIENDA PRO POR <span className="text-red-500">♥</span> LinnkPro.shop
+            TIENDA PRO POR <span className="text-red-500">♥</span> linnkpro.store
           </a>
         </div>
       </footer>
@@ -1533,34 +1760,51 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
       {/* 2. PRODUCT CUSTOMIZATION OVERLAY / ADDTOCART BAR */}
       {selectedProduct && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-950 border border-gray-850 rounded-3xl max-w-sm md:max-w-2xl w-full p-6 text-gray-100 relative shadow-2.5xl animate-fade-in max-h-[92vh] overflow-y-auto">
+          <div className="bg-gray-950 border border-gray-850 rounded-3xl max-w-sm md:max-w-3xl lg:max-w-4xl w-full text-gray-100 relative shadow-2.5xl animate-fade-in max-h-[92vh] flex flex-col overflow-hidden">
             <button 
               onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-white font-bold p-1.5 transition cursor-pointer z-20 hover:scale-110 active:scale-95 bg-gray-900 rounded-full border border-gray-800"
+              className="absolute top-4 right-4 text-white font-bold p-1.5 transition cursor-pointer z-30 hover:scale-110 active:scale-95 bg-red-600 hover:bg-red-500 rounded-full border border-red-700 shadow-md shadow-red-900/35"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4 stroke-[2.5]" />
             </button>
             
-            <div className="flex flex-col md:flex-row gap-6 mt-2">
-              {/* Product Image on Left (PC) / Top (Mobile) */}
-              <div className="w-full md:w-1/2 aspect-square bg-[#0c101d] rounded-2xl overflow-hidden border border-gray-900 flex items-center justify-center text-4xl shrink-0">
-                {selectedProduct.imageURL ? (
-                  <img src={selectedProduct.imageURL} alt={selectedProduct.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <span>🎁</span>
-                )}
-              </div>
+            {/* Scrollable Body containing image and text details */}
+            <div className="flex-1 overflow-y-auto p-6 pb-2">
+              <div className="flex flex-col md:flex-row gap-6 mt-2">
+                {/* Product Image on Left (PC) / Top (Mobile) */}
+                <div className="w-full md:w-[45%] aspect-[4/5] md:aspect-auto md:h-[420px] bg-gray-900 rounded-2xl overflow-hidden border border-gray-900/60 flex items-center justify-center text-4xl shrink-0 relative shadow-inner">
+                  {selectedProduct.imageURL ? (
+                    <>
+                      {/* Ambient Glow Background for immersive experience */}
+                      <img 
+                        src={selectedProduct.imageURL} 
+                        alt="" 
+                        className="absolute inset-0 w-full h-full object-cover opacity-20 blur-xl scale-110 select-none pointer-events-none filter saturate-150" 
+                        aria-hidden="true"
+                        referrerPolicy="no-referrer"
+                      />
+                      {/* Main Image, fully visible without being cropped or cut off */}
+                      <img 
+                        src={selectedProduct.imageURL} 
+                        alt={selectedProduct.name} 
+                        className="relative z-10 max-w-full max-h-full object-contain p-2 hover:scale-[1.03] transition-transform duration-300" 
+                        referrerPolicy="no-referrer" 
+                      />
+                    </>
+                  ) : (
+                    <span className="relative z-10">🎁</span>
+                  )}
+                </div>
 
-              {/* Product Details on Right (PC) / Bottom (Mobile) */}
-              <div className="flex-grow flex flex-col justify-between">
-                <div>
+                {/* Product Details on Right (PC) / Bottom (Mobile) */}
+                <div className="flex-grow flex flex-col justify-start">
                   <span className="text-[9px] font-black uppercase text-indigo-405 tracking-wider mb-1 block">{selectedProduct.category || 'General'}</span>
                   <h3 className="text-lg font-black text-white leading-tight mb-1.5">{selectedProduct.name}</h3>
                   
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-lg font-extrabold text-emerald-400">{getStoreCurrency()}{selectedProduct.price.toLocaleString()}</span>
+                    <span className="text-lg font-extrabold text-emerald-400">{getStoreCurrency()}{Number(selectedProduct.price || 0).toLocaleString()}</span>
                     {selectedProduct.compareAtPrice && (
-                      <span className="text-xs text-gray-500 line-through font-bold">{getStoreCurrency()}{selectedProduct.compareAtPrice.toLocaleString()}</span>
+                      <span className="text-xs text-gray-500 line-through font-bold">{getStoreCurrency()}{Number(selectedProduct.compareAtPrice || 0).toLocaleString()}</span>
                     )}
                   </div>
 
@@ -1584,41 +1828,50 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
 
-                <div className="space-y-4">
-                  {/* Quantity Controller */}
-                  <div className="flex justify-between items-center bg-gray-900 p-3 rounded-xl border border-gray-850">
-                    <span className="text-xs font-bold text-gray-400">Cantidad:</span>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setBuyQuantity(q => q > 1 ? q - 1 : 1)}
-                        className="p-1.5 bg-gray-950 border border-gray-800 rounded hover:bg-gray-800 transition text-gray-400 hover:text-white"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="text-sm font-black text-white font-mono w-4 text-center">{buyQuantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => setBuyQuantity(q => q + 1)}
-                        className="p-1.5 bg-gray-950 border border-gray-800 rounded hover:bg-gray-800 transition text-gray-400 hover:text-white"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
+            {/* STICKY/FIXED FOOTER: This element remains fixed/sticky at the bottom of the modal container */}
+            <div className="p-6 pt-3 border-t border-gray-900 bg-gray-950 shrink-0 z-20">
+              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                {/* Quantity Controller */}
+                <div className="flex justify-between items-center bg-gray-900 p-3 rounded-xl border border-gray-850 w-full sm:w-auto sm:min-w-[180px]">
+                  <span className="text-xs font-bold text-gray-400">Cantidad:</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setBuyQuantity(q => q > 1 ? q - 1 : 1)}
+                      className="p-1.5 bg-gray-950 border border-gray-800 rounded hover:bg-gray-800 transition text-gray-400 hover:text-white"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="text-sm font-black text-white font-mono w-4 text-center">{buyQuantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBuyQuantity(q => q + 1)}
+                      className="p-1.5 bg-gray-950 border border-gray-800 rounded hover:bg-gray-800 transition text-gray-400 hover:text-white"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
                   </div>
+                </div>
 
-                  {/* Add active button */}
-                  {profile.isClosed ? (
+                {/* Add to Cart button */}
+                <div className="w-full sm:flex-1">
+                  {isStoreClosedNow ? (
                     <div className="bg-red-500/10 border border-red-500/35 p-4 rounded-xl flex flex-col items-center gap-1.5 text-center text-red-400">
                       <span className="font-extrabold text-xs flex items-center gap-2 uppercase animate-pulse">
                         <span className="relative flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                         </span>
-                        Tienda Cerrada Temporalmente
+                        Tienda Cerrada
                       </span>
-                      <p className="text-[10px] text-red-300/80 font-semibold">No se pueden procesar pedidos en este momento.</p>
+                      <p className="text-[10px] text-red-300/80 font-semibold">
+                        {profile.scheduleEnabled && profile.openTime && profile.closeTime && !profile.isClosed
+                          ? `Horario de atención: ${profile.openTime} - ${profile.closeTime}`
+                          : 'No se pueden procesar pedidos en este momento.'}
+                      </p>
                     </div>
                   ) : (
                     <button
@@ -1627,13 +1880,13 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                       className="w-full py-3.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 transition cursor-pointer"
                     >
                       <ShoppingBag className="w-4 h-4 text-black stroke-[3]" />
-                      Añadir al Carrito ({getStoreCurrency()}{(selectedProduct.price * buyQuantity).toLocaleString()})
+                      Añadir al Carrito ({getStoreCurrency()}{Number((selectedProduct.price || 0) * buyQuantity).toLocaleString()})
                     </button>
                   )}
                 </div>
               </div>
-
             </div>
+
           </div>
         </div>
       )}
@@ -1652,10 +1905,11 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 </div>
                 <button
                   type="button"
+                  id="close-cart-btn"
                   onClick={() => setIsCartOpen(false)}
-                  className="text-gray-500 hover:text-white transition cursor-pointer"
+                  className="w-8 h-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white rounded-full transition cursor-pointer"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
@@ -1726,19 +1980,31 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
 
             {/* Cart Footer Totalizer & checkout toggle */}
             {cart.length > 0 && (
-              <div className="border-t border-gray-900 pt-4 space-y-4">
-                <div className="flex items-center justify-between font-extrabold text-sm text-white">
-                  <span>Subtotal acumulado:</span>
-                  <span className="text-emerald-400 text-lg">{getStoreCurrency()}{totalCartCost.toLocaleString()}</span>
+              <div className="border-t border-gray-900 pt-4 space-y-2">
+                <div className="flex items-center justify-between font-bold text-xs text-gray-400">
+                  <span>Subtotal:</span>
+                  <span className="font-mono">{getStoreCurrency()}{totalCartCost.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between font-bold text-xs text-gray-400">
+                  <span>Costo de Domicilio:</span>
+                  <span className="font-mono text-amber-400">{getStoreCurrency()}{systemDeliveryFee.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between font-extrabold text-sm text-white pt-1 border-t border-dashed border-gray-900">
+                  <span>Total estimado:</span>
+                  <span className="text-emerald-400 text-base font-mono">{getStoreCurrency()}{(totalCartCost + systemDeliveryFee).toLocaleString()}</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  {profile.isClosed ? (
+                <div className="grid grid-cols-2 gap-2.5 pt-2">
+                  {isStoreClosedNow ? (
                     <div className="col-span-2 bg-red-500/10 border border-red-500/35 p-3.5 rounded-xl text-center text-red-400">
                       <span className="font-extrabold text-xs flex items-center justify-center gap-1.5 uppercase animate-pulse mb-1">
                         🔴 Tienda Cerrada
                       </span>
-                      <p className="text-[10px] text-red-350 font-semibold">No se pueden recibir pedidos temporalmente.</p>
+                      <p className="text-[10px] text-red-350 font-semibold">
+                        {profile.scheduleEnabled && profile.openTime && profile.closeTime && !profile.isClosed
+                          ? `Horario: ${profile.openTime} - ${profile.closeTime}`
+                          : 'No se pueden recibir pedidos temporalmente.'}
+                      </p>
                     </div>
                   ) : (
                     <button
@@ -1768,14 +2034,14 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
             <div className="flex items-center justify-between border-b border-gray-900 pb-3">
               <h3 className="font-extrabold text-sm uppercase flex items-center gap-1.5 text-white">
                 <MapPin className="w-4.5 h-4.5 text-indigo-400" />
-                Registrar Mi Pedido
+                Hacer Mi Pedido
               </h3>
               <button
                 type="button"
                 onClick={() => setIsCheckoutOpen(false)}
-                className="text-gray-500 hover:text-white transition p-1"
+                className="text-white font-bold p-1.5 transition cursor-pointer hover:scale-110 active:scale-95 bg-red-600 hover:bg-red-500 rounded-full border border-red-700 shadow-md shadow-red-900/35"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 stroke-[2.5]" />
               </button>
             </div>
 
@@ -1790,61 +2056,55 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 value={custName}
                 onChange={(e) => setCustName(e.target.value)}
                 placeholder="Ej: Laura Bermúdez"
-                className="w-full h-11 bg-[#0c101d] border border-gray-900 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-indigo-500/20"
+                className="w-full h-11 bg-white border border-gray-300 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-gray-900 placeholder:text-gray-400 focus:ring-1 focus:ring-indigo-500/20"
               />
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">WhatsApp de contacto *</label>
-                <input 
-                  type="tel" 
-                  required
-                  value={custPhone}
-                  onChange={(e) => setCustPhone(e.target.value)}
-                  placeholder="Ej: 573123456789"
-                  className="w-full h-11 bg-[#0c101d] border border-gray-900 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-indigo-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">Email (Opcional)</label>
-                <input 
-                  type="email" 
-                  value={custEmail}
-                  onChange={(e) => setCustEmail(e.target.value)}
-                  placeholder="laura@ejemplo.com"
-                  className="w-full h-11 bg-[#0c101d] border border-gray-900 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-indigo-500/20"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 py-1">
-              <input
-                type="checkbox"
-                id="local-pickup-toggle"
-                checked={isLocalPickup}
-                onChange={(e) => setIsLocalPickup(e.target.checked)}
-                className="w-4.5 h-4.5 bg-gray-900 rounded border-gray-800 text-emerald-400 pointer-events-auto"
+            <div>
+              <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">WhatsApp de contacto *</label>
+              <input 
+                type="tel" 
+                required
+                value={custPhone}
+                onChange={(e) => {
+                  const cleaned = cleanColombianPhone(e.target.value);
+                  setCustPhone(cleaned);
+                  if (phoneError) {
+                    if (cleaned.length === 10) {
+                      setPhoneError('');
+                    }
+                  }
+                }}
+                onBlur={() => {
+                  if (custPhone && cleanColombianPhone(custPhone).length !== 10) {
+                    setPhoneError("Ingrese un número de celular colombiano válido.");
+                  } else {
+                    setPhoneError("");
+                  }
+                }}
+                placeholder="Ej: 3157785706"
+                className={`w-full h-11 bg-white border ${
+                  phoneError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500/20'
+                } rounded-xl px-3.5 text-xs font-semibold outline-none text-gray-900 placeholder:text-gray-400 focus:ring-1`}
               />
-              <label htmlFor="local-pickup-toggle" className="text-xs font-bold text-gray-400 cursor-pointer select-none">
-                Retiro local en tienda (Ahorrar envío)
-              </label>
+              {phoneError && (
+                <p className="text-[11px] font-bold text-red-500 mt-1 flex items-center gap-1">
+                  <span>⚠️</span> {phoneError}
+                </p>
+              )}
             </div>
 
-            {!isLocalPickup && (
-              <div>
-                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">Dirección Completa de Despacho *</label>
-                <input 
-                  type="text" 
-                  required={!isLocalPickup}
-                  value={custAddress}
-                  onChange={(e) => setCustAddress(e.target.value)}
-                  placeholder="Ej: Calle 45 #23-12, Apto 402, Bogotá"
-                  className="w-full h-11 bg-[#0c101d] border border-gray-900 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-indigo-500/20"
-                />
-              </div>
-            )}
+            <div>
+              <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">Dirección Completa de Despacho *</label>
+              <input 
+                type="text" 
+                required
+                value={custAddress}
+                onChange={(e) => setCustAddress(e.target.value)}
+                placeholder="Ej: Calle 45 #23-12, Apto 402, Bogotá"
+                className="w-full h-11 bg-white border border-gray-300 focus:border-indigo-500 rounded-xl px-3.5 text-xs font-semibold outline-none text-gray-900 placeholder:text-gray-400 focus:ring-1 focus:ring-indigo-500/20"
+              />
+            </div>
 
             <div>
               <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">Instrucciones o Notas Especiales</label>
@@ -1853,7 +2113,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 value={custNotes}
                 onChange={(e) => setCustNotes(e.target.value)}
                 placeholder="Ej: Golpear fuerte el portón negro o dejar en portería."
-                className="w-full bg-[#0c101d] border border-gray-900 focus:border-indigo-500 rounded-xl p-3.5 text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-indigo-500/20 resize-none"
+                className="w-full bg-white border border-gray-300 focus:border-indigo-500 rounded-xl p-3.5 text-xs font-semibold outline-none text-gray-900 placeholder:text-gray-400 focus:ring-1 focus:ring-indigo-500/20 resize-none"
               />
             </div>
 
@@ -1867,25 +2127,37 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                   <div className="flex items-center gap-2.5">
                     <MessageCircle className="w-5 h-5 text-emerald-400" />
                     <div className="text-left">
-                      <h4 className="text-xs font-extrabold text-white">WhatsApp Directo</h4>
+                      <h4 className="text-xs font-extrabold text-white">Pedir por WhatsApp</h4>
                       <p className="text-[9px] text-gray-500">Coordinar pago por chat</p>
                     </div>
                   </div>
                   <input type="radio" checked={payMethod === 'whatsapp'} onChange={() => setPayMethod('whatsapp')} className="w-4 h-4 accent-emerald-500 pointer-events-auto" />
                 </label>
 
-                <label className={`p-3 border rounded-xl flex items-center justify-between cursor-pointer transition ${
-                  payMethod === 'transfer' ? 'border-indigo-400 bg-indigo-505/5' : 'border-gray-900 hover:border-gray-800'
-                }`}>
-                  <div className="flex items-center gap-2.5">
-                    <Wallet className="w-5 h-5 text-indigo-400" />
-                    <div className="text-left">
-                      <h4 className="text-xs font-extrabold text-white">Transferencia Bancaria</h4>
-                      <p className="text-[9px] text-gray-500">Te enviaré los números de cuenta bancaria</p>
+                {(!profile?.bankAccounts || profile.bankAccounts.length === 0) ? (
+                  <div className="p-3 border border-gray-900 bg-gray-950/45 rounded-xl flex items-center justify-between opacity-50 cursor-not-allowed">
+                    <div className="flex items-center gap-2.5 flex-1">
+                      <Wallet className="w-5 h-5 text-gray-600" />
+                      <div className="text-left">
+                        <h4 className="text-xs font-bold text-gray-500">Transferencia Bancaria (No Disponible)</h4>
+                        <p className="text-[9px] text-gray-650">El vendedor no ha configurado sus datos de pago</p>
+                      </div>
                     </div>
                   </div>
-                  <input type="radio" checked={payMethod === 'transfer'} onChange={() => setPayMethod('transfer')} className="w-4 h-4 accent-indigo-400 pointer-events-auto" />
-                </label>
+                ) : (
+                  <label className={`p-3 border rounded-xl flex items-center justify-between cursor-pointer transition ${
+                    payMethod === 'transfer' ? 'border-indigo-400 bg-indigo-500/5' : 'border-gray-900 hover:border-gray-800'
+                  }`}>
+                    <div className="flex items-center gap-2.5">
+                      <Wallet className="w-5 h-5 text-indigo-400" />
+                      <div className="text-left">
+                        <h4 className="text-xs font-extrabold text-white">Transferencia Bancaria</h4>
+                        <p className="text-[9px] text-gray-500">Paga por transferencia o billetera digital</p>
+                      </div>
+                    </div>
+                    <input type="radio" checked={payMethod === 'transfer'} onChange={() => setPayMethod('transfer')} className="w-4 h-4 accent-indigo-400 pointer-events-auto" />
+                  </label>
+                )}
 
                 <label className={`p-3 border rounded-xl flex items-center justify-between cursor-pointer transition ${
                   payMethod === 'cod' ? 'border-amber-400 bg-amber-500/5' : 'border-gray-900 hover:border-gray-800'
@@ -1901,6 +2173,76 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 </label>
               </div>
             </div>
+
+            {payMethod === 'transfer' && profile?.bankAccounts && profile.bankAccounts.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="space-y-3 bg-[#0a0e1a] border border-gray-900 p-4 rounded-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-gray-900 pb-2 mb-1">
+                  <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider flex items-center gap-1.5">
+                    <Landmark className="w-3.5 h-3.5" /> Cuentas para Transferencia
+                  </span>
+                  <span className="text-[9px] text-gray-500 font-bold">Datos del Vendedor</span>
+                </div>
+                
+                <div className="space-y-3">
+                  {profile.bankAccounts.map((acc) => (
+                    <div 
+                      key={acc.id} 
+                      className="bg-[#05080f] border border-gray-900 p-3.5 rounded-xl space-y-3"
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-tight">{acc.bankName}</h4>
+                          <span className="text-[9px] text-indigo-400 font-bold uppercase">{acc.accountType}</span>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAccountNumber(acc.accountNumber, acc.id)}
+                          className="py-1 px-2.5 bg-gray-900 border border-gray-850 hover:border-gray-700 text-gray-300 hover:text-white rounded-lg text-[10px] font-black transition flex items-center gap-1 shrink-0 font-mono"
+                        >
+                          {copiedAccountId === acc.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400 stroke-[3]" />
+                              Copiado!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 text-gray-500" />
+                              {acc.accountNumber}
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {acc.instructions && (
+                        <p className="text-[10px] text-gray-400 font-semibold bg-gray-900/35 border border-gray-900/50 p-2 rounded-lg leading-relaxed whitespace-pre-wrap text-left">
+                          {acc.instructions}
+                        </p>
+                      )}
+
+                      {acc.qrCodeURL && (
+                        <div className="flex flex-col items-center justify-center p-2.5 border border-gray-900 bg-[#0c101d]/50 rounded-xl gap-2">
+                          <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Escanear Código QR</span>
+                          <img 
+                            src={acc.qrCodeURL} 
+                            alt="QR de Pago" 
+                            onClick={() => setExpandedQRUrl(acc.qrCodeURL)}
+                            className="w-32 h-32 object-contain bg-white rounded-lg p-1.5 border border-gray-800 cursor-pointer hover:scale-105 transition"
+                            referrerPolicy="no-referrer"
+                            title="Haz clic para ampliar"
+                          />
+                          <span className="text-[8px] text-gray-500 font-medium font-sans">Haz clic para ampliar QR</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Optional purchase image proof / receipt upload */}
             <div className="space-y-2">
@@ -1963,9 +2305,19 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
             </div>
 
             {/* Total final */}
-            <div className="flex justify-between items-center text-sm font-extrabold border-t border-gray-900 pt-4 text-white">
-              <span>Monto Total a Pagar:</span>
-              <span className="text-emerald-400 text-base">{getStoreCurrency()}{totalCartCost.toLocaleString()}</span>
+            <div className="border-t border-gray-900 pt-4 space-y-2">
+              <div className="flex justify-between items-center text-xs text-gray-400 font-bold">
+                <span>Subtotal productos:</span>
+                <span className="font-mono">{getStoreCurrency()}{totalCartCost.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs text-gray-400 font-bold">
+                <span>Costo de Domicilio:</span>
+                <span className="font-mono text-amber-400">{getStoreCurrency()}{systemDeliveryFee.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm font-extrabold border-t border-dashed border-gray-900 pt-2 text-white">
+                <span>Monto Total a Pagar:</span>
+                <span className="text-emerald-400 text-base font-mono">{getStoreCurrency()}{(totalCartCost + systemDeliveryFee).toLocaleString()}</span>
+              </div>
             </div>
 
             {/* Action buttons */}
@@ -1982,7 +2334,7 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                 disabled={orderSubmitting}
                 className="flex-1 py-3 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition shadow"
               >
-                {orderSubmitting ? 'Registrando...' : 'Confirmar Pedido'}
+                {orderSubmitting ? 'Procesando...' : 'Hacer Mi Pedido 🚀'}
               </button>
             </div>
           </form>
@@ -2024,6 +2376,35 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN QR LIGHTBOX MODAL */}
+      {expandedQRUrl && (
+        <div 
+          onClick={() => setExpandedQRUrl(null)}
+          className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 z-50 animate-fade-in cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white p-6 rounded-3xl max-w-sm w-full flex flex-col items-center justify-center gap-4 relative animate-scale-in"
+          >
+            <button 
+              type="button"
+              onClick={() => setExpandedQRUrl(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-900 transition p-1 bg-gray-100 rounded-full"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mt-2">Código QR para Pago</span>
+            <img 
+              src={expandedQRUrl} 
+              alt="QR Ampliado" 
+              className="w-64 h-64 object-contain"
+              referrerPolicy="no-referrer"
+            />
+            <p className="text-[10px] text-gray-500 text-center font-bold">Escanea este código desde la app de tu banco o billetera digital para completar la transferencia.</p>
           </div>
         </div>
       )}

@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth, fetchProfileByUid } from './lib/firebase';
+import { auth, fetchProfileByUid, captureUrlReferralCode, getActiveReferralCode } from './lib/firebase';
 import { UserProfile } from './types';
 
 // Importing Custom Component views
@@ -15,11 +15,18 @@ import Dashboard from './components/Dashboard';
 import PublicProfile from './components/PublicProfile';
 import AdminPanel from './components/AdminPanel';
 import TiendaGeneral from './components/TiendaGeneral';
+import DriverRegister from './components/DriverRegister';
+import DriverPortal from './components/DriverPortal';
+import CarruselProduc from './components/CarruselProduc';
+import PwaLoadingScreen from './components/PwaLoadingScreen';
+import PwaInstallModal from './components/PwaInstallModal';
+import { DriverProfile } from './types';
 
 export default function App() {
   // Routing states
-  const [view, setView] = useState<'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda'>('landing');
+  const [view, setView] = useState<'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal' | 'carruselproduc'>('tienda');
   const [targetUsername, setTargetUsername] = useState<string | null>(null);
+  const [activeDriverSession, setActiveDriverSession] = useState<DriverProfile | null>(null);
   
   // Auth state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -61,7 +68,7 @@ export default function App() {
       hashUser = hashUser.substring(1);
     }
 
-    const cleanedPath = pathUser && !['login', 'signup', 'dashboard', 'admin', 'tienda'].includes(pathUser.toLowerCase()) ? pathUser : null;
+    const cleanedPath = pathUser && !['login', 'signup', 'dashboard', 'admin', 'tienda', 'domiciliario', 'driver-register', 'driver-portal', 'domiciliarios', 'carruselproduc'].includes(pathUser.toLowerCase()) ? pathUser : null;
     return queryUser || cleanedPath || (hashUser ? hashUser : null);
   };
 
@@ -78,7 +85,17 @@ export default function App() {
       }
 
       if (pathUser === 'tienda' || hashUser === 'tienda') {
-        setView('tienda');
+        // /tienda route now displays LandingPage
+        setView('landing');
+        setTargetUsername(null);
+      } else if (pathUser === 'carruselproduc' || hashUser === 'carruselproduc' || pathUser === 'carrusel-productos' || hashUser === 'carrusel-productos') {
+        setView('carruselproduc');
+        setTargetUsername(null);
+      } else if (pathUser === 'domiciliario' || pathUser === 'domiciliarios' || pathUser === 'driver-portal' || hashUser === 'domiciliario' || hashUser === 'domiciliarios' || hashUser === 'driver-portal') {
+        setView('driver-portal');
+        setTargetUsername(null);
+      } else if (pathUser === 'driver-register' || hashUser === 'driver-register') {
+        setView('driver-register');
         setTargetUsername(null);
       } else {
         const usernameToLoad = getUsernameFromUrl();
@@ -87,14 +104,17 @@ export default function App() {
           setView('profile');
         } else {
           setTargetUsername(null);
-          // If we were on profile or tienda view but cleared url, fallback inside dashboard (if logged) or landing
-          setView(prev => (prev === 'profile' || prev === 'tienda') ? (auth.currentUser ? 'dashboard' : 'landing') : prev);
+          // Root path '/' now displays TiendaGeneral (general directory/catalog)
+          setView('tienda');
         }
       }
     };
 
     // Run on mount
     handleUrlRouteCheck();
+
+    // Capture referral from URL if present (?ref=..., ?referral=..., ?c=...)
+    captureUrlReferralCode();
 
     // Listen to back/forward and hash changes
     window.addEventListener('popstate', handleUrlRouteCheck);
@@ -117,8 +137,11 @@ export default function App() {
           // Only force redirect to dashboard if user is not looking at a public profile or auth routing explicitly
           const activeUserProfileUrl = getUsernameFromUrl();
           const pathUser = window.location.pathname.substring(1).trim().toLowerCase();
-          const isTiendaRoute = pathUser === 'tienda' || window.location.hash.toLowerCase() === '#/tienda' || window.location.hash.toLowerCase() === '#tienda';
-          if (!activeUserProfileUrl && !isTiendaRoute) {
+          const hashVal = window.location.hash.toLowerCase();
+          const isPublicRoute = ['tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
+            ['#tienda', '#/tienda', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
+
+          if (!activeUserProfileUrl && !isPublicRoute) {
             setView(profile.suspended ? 'landing' : 'dashboard');
           }
         } else {
@@ -138,8 +161,11 @@ export default function App() {
           
           const activeUserProfileUrl = getUsernameFromUrl();
           const pathUser = window.location.pathname.substring(1).trim().toLowerCase();
-          const isTiendaRoute = pathUser === 'tienda' || window.location.hash.toLowerCase() === '#/tienda' || window.location.hash.toLowerCase() === '#tienda';
-          if (!activeUserProfileUrl && !isTiendaRoute) {
+          const hashVal = window.location.hash.toLowerCase();
+          const isPublicRoute = ['tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
+            ['#tienda', '#/tienda', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
+
+          if (!activeUserProfileUrl && !isPublicRoute) {
             setView('dashboard');
           }
         }
@@ -187,12 +213,7 @@ export default function App() {
   };
 
   if (initLoading) {
-    return (
-      <div className="min-h-screen bg-[#070b14] flex items-center justify-center flex-col gap-4 text-gray-100">
-        <div className="w-10 h-10 border-4 border-emerald-400 border-t-transparent animate-spin rounded-full" />
-        <span className="text-xs font-semibold text-gray-400 tracking-wider">Iniciando plataforma SaaS Linnk.Pro...</span>
-      </div>
-    );
+    return <PwaLoadingScreen />;
   }
 
   return (
@@ -201,12 +222,17 @@ export default function App() {
         <LandingPage 
           onNavigate={(targetView, customUser) => {
             if (targetView === 'tienda') {
+              window.history.pushState({}, '', '/');
+              setView('tienda');
+            } else if (targetView === 'landing') {
               window.history.pushState({}, '', '/tienda');
+              setView('landing');
+            } else {
+              if (customUser) {
+                setClaimedUsername(customUser);
+              }
+              setView(targetView);
             }
-            if (customUser) {
-              setClaimedUsername(customUser);
-            }
-            setView(targetView);
           }} 
         />
       )}
@@ -251,6 +277,43 @@ export default function App() {
           onBack={() => setView('dashboard')}
         />
       )}
+
+      {view === 'driver-register' && (
+        <DriverRegister 
+          onNavigateHome={handleNavigateHome}
+          onNavigateLogin={() => setView('driver-portal')}
+          onSuccessRegistered={(driver) => {
+            setActiveDriverSession(driver);
+            setView('driver-portal');
+          }}
+        />
+      )}
+
+      {view === 'driver-portal' && (
+        <DriverPortal 
+          onNavigateHome={handleNavigateHome}
+          onNavigateRegister={() => setView('driver-register')}
+          initialDriver={activeDriverSession}
+        />
+      )}
+
+      {view === 'carruselproduc' && (
+        <CarruselProduc
+          onNavigateHome={handleNavigateHome}
+          onNavigateToStore={(username) => {
+            window.history.pushState({}, '', '/' + username);
+            setTargetUsername(username);
+            setView('profile');
+          }}
+          onNavigateToTienda={() => {
+            window.history.pushState({}, '', '/');
+            setView('tienda');
+          }}
+        />
+      )}
+
+      {/* Progressive Web App (PWA) Installation Bottom Sheet Modal */}
+      <PwaInstallModal />
     </div>
   );
 }

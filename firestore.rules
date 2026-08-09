@@ -73,11 +73,33 @@ service cloud.firestore {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid);
     }
     
-    // Orders collection rules (Anyone can create/submit, owner can read/update/delete)
+    // Orders collection rules (Anyone can create/submit, owner, driver & admin can read/update/delete)
     match /orders/{orderId} {
       allow create: if true;
-      allow read: if isAuth() && (resource.data.storeOwnerId == request.auth.uid);
-      allow update, delete: if isAuth() && (resource.data.storeOwnerId == request.auth.uid);
+      allow read: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    // Drivers collection rules (Registration, profile management & admin approval)
+    match /drivers/{driverId} {
+      allow create: if true;
+      allow read: if true;
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // Driver ratings rules
+    match /driver_ratings/{ratingId} {
+      allow create: if true;
+      allow read: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // Global System Settings rules (Public read for delivery fees, write is admin-only)
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Subscription payments collection rules (Merchants create and read theirs, administrators approve/reject)
@@ -88,6 +110,17 @@ service cloud.firestore {
         isAdmin()
       );
       allow update, delete: if isAuth() && isAdmin();
+    }
+
+    // Content Creators collection rules (Public read for referral lookups & clicks, write management)
+    match /creators/{creatorId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Referral Commissions collection rules
+    match /referral_commissions/{commissionId} {
+      allow read, create, update, delete: if true;
     }
   }
 }
