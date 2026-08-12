@@ -196,7 +196,7 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
     : '';
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden flex flex-col select-none touch-pan-x">
+    <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden flex flex-col select-none" style={{ touchAction: 'pan-x pan-y' }}>
       
       {/* Top Header Stories Bar */}
       <div className="absolute top-0 left-0 right-0 z-30 p-3 sm:p-4 bg-gradient-to-b from-black/90 via-black/50 to-transparent">

@@ -217,7 +217,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#070b14] select-none text-gray-100">
+    <div className="min-h-screen bg-[#070b14] text-gray-100">
       {view === 'landing' && (
         <LandingPage 
           onNavigate={(targetView, customUser) => {

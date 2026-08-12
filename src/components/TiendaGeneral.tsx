@@ -637,7 +637,7 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                 )}
               </div>
 
-              <div className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto pb-1 pt-1 px-1 hide-scrollbar touch-pan-x" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <div className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto pb-1 pt-1 px-1 hide-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-x pan-y' }}>
                 {/* All Stores Pill Button */}
                 <button
                   onClick={() => setSelectedStore('all')}
@@ -702,7 +702,7 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
               <Filter className="w-3.5 h-3.5 text-[#A9B2C3]" />
               <span>Categorías:</span>
             </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 hide-scrollbar touch-pan-x" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 hide-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-x pan-y' }}>
               {categories.map((cat) => {
                 const isAll = cat === 'all';
                 const isSelected = selectedCategory === cat;
