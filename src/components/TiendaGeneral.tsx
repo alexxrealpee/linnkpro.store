@@ -50,7 +50,24 @@ export const isFoodCategory = (cat?: string): boolean => {
     c.includes('hamburguesa') ||
     c.includes('pizza') ||
     c.includes('picada') ||
-    c.includes('comidas')
+    c.includes('comidas') ||
+    c.includes('pollo') ||
+    c.includes('perro') ||
+    c.includes('combo') ||
+    c.includes('ensalada') ||
+    c.includes('pasta') ||
+    c.includes('arroz') ||
+    c.includes('bebida') ||
+    c.includes('desayuno') ||
+    c.includes('carne') ||
+    c.includes('pescado') ||
+    c.includes('marisco') ||
+    c.includes('vegetariano') ||
+    c.includes('mexicana') ||
+    c.includes('licor') ||
+    c.includes('cerveza') ||
+    c.includes('vino') ||
+    c.includes('trago')
   );
 };
 

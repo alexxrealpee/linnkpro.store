@@ -14,6 +14,7 @@ import {
   Palette, 
   ShoppingBag, 
   Check, 
+  Save,
   Copy, 
   LogOut, 
   Sparkles, 
@@ -82,6 +83,24 @@ import {
 } from '../types';
 import BankSettings from './BankSettings';
 import { formatColombianPhoneWith57 } from './PublicProfile';
+
+export const RESTAURANT_CATEGORIES = [
+  '🍔 Hamburguesas',
+  '🍕 Pizzas',
+  '🌮 Comida mexicana',
+  '🍗 Pollo',
+  '🌭 Perros calientes',
+  '🍟 Combos y acompañamientos',
+  '🥗 Ensaladas',
+  '🍝 Pastas',
+  '🍚 Arroces',
+  '🥤 Bebidas',
+  '🍰 Postres',
+  '☕ Desayunos',
+  '🥩 Carnes',
+  '🐟 Pescados y mariscos',
+  '🌱 Vegetariano / saludable',
+];
 
 // Custom Tiktok Icon component to match lucide-react styling
 const Tiktok = ({ className = "w-4 h-4", ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -576,7 +595,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
     setProdPrice('');
     setProdComparePrice('');
     setProdImage('');
-    setProdCategory('General');
+    setProdCategory('🍔 Hamburguesas');
     setProdStock('15');
     setProdVariants('');
     setProdActive(true);
@@ -1529,14 +1548,67 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                             </div>
 
                             <div>
-                              <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider block mb-1">Categoría</label>
-                              <input
-                                type="text"
-                                value={prodCategory}
-                                onChange={(e) => setProdCategory(e.target.value)}
-                                placeholder="Ej: Accesorios, Calzado, Alimentos"
-                                className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-emerald-500/20"
-                              />
+                              <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider block mb-1">Categoría del Producto</label>
+                              <div className="relative">
+                                <select
+                                  value={RESTAURANT_CATEGORIES.includes(prodCategory) ? prodCategory : 'CUSTOM'}
+                                  onChange={(e) => {
+                                    if (e.target.value === 'CUSTOM') {
+                                      if (RESTAURANT_CATEGORIES.includes(prodCategory)) {
+                                        setProdCategory('');
+                                      }
+                                    } else {
+                                      setProdCategory(e.target.value);
+                                    }
+                                  }}
+                                  className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 pr-8 rounded-xl text-xs font-bold outline-none text-emerald-400 focus:ring-1 focus:ring-emerald-500/20 cursor-pointer appearance-none"
+                                >
+                                  {RESTAURANT_CATEGORIES.map((cat) => (
+                                    <option key={cat} value={cat} className="bg-gray-950 text-white font-semibold">
+                                      {cat}
+                                    </option>
+                                  ))}
+                                  <option value="CUSTOM" className="bg-gray-950 text-amber-400 font-bold">
+                                    ✏️ Otra categoría (Escribir personalizada...)
+                                  </option>
+                                </select>
+                                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-400">
+                                  <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                                    <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                                  </svg>
+                                </div>
+                              </div>
+
+                              {(!RESTAURANT_CATEGORIES.includes(prodCategory) || prodCategory === '') && (
+                                <input
+                                  type="text"
+                                  value={prodCategory}
+                                  onChange={(e) => setProdCategory(e.target.value)}
+                                  placeholder="Escribe la categoría personalizada..."
+                                  className="w-full h-10 bg-gray-900/90 border border-amber-500/40 focus:border-amber-400 px-3.5 mt-2 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-amber-500/20"
+                                />
+                              )}
+
+                              <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                                <span className="text-[9px] font-extrabold text-gray-500 uppercase shrink-0 mr-0.5">Rápidas:</span>
+                                {RESTAURANT_CATEGORIES.map((cat) => {
+                                  const isSelected = prodCategory === cat;
+                                  return (
+                                    <button
+                                      key={cat}
+                                      type="button"
+                                      onClick={() => setProdCategory(cat)}
+                                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg shrink-0 transition border cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+                                          : 'bg-gray-900 text-gray-400 border-gray-800 hover:border-gray-700 hover:text-white'
+                                      }`}
+                                    >
+                                      {cat}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
 
@@ -2264,7 +2336,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                     <div className="grid lg:grid-cols-12 gap-6 items-start">
                       
                       {/* Configuration values form */}
-                      <form onSubmit={handleUpdateStoreProfile} className="lg:col-span-7 bg-gray-950 border border-gray-900 p-6 rounded-3xl space-y-5">
+                      <form id="store-profile-form" onSubmit={handleUpdateStoreProfile} className="lg:col-span-7 bg-gray-950 border border-gray-900 p-6 rounded-3xl space-y-5">
                         <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Datos del escaparate</span>
                         
                         <div>
@@ -2381,15 +2453,29 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
 
                           <div>
                             <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider block mb-1">Símbolo de Moneda</label>
-                            <input
-                              type="text"
-                              value={profile.currency || '$'}
-                              maxLength={5}
-                              onChange={(e) => setProfile(p => ({ ...p, currency: e.target.value }))}
-                              placeholder="$"
-                              className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-emerald-500/20 text-center"
-                            />
-                            <p className="text-[9px] text-gray-500 mt-1 font-semibold">Elige el símbolo (Ej: $, COP, €, USD, MXN).</p>
+                            <div className="relative">
+                              <select
+                                value={profile.currency || '$'}
+                                onChange={(e) => setProfile(p => ({ ...p, currency: e.target.value }))}
+                                className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 pr-8 rounded-xl text-xs font-extrabold outline-none text-emerald-400 focus:ring-1 focus:ring-emerald-500/20 cursor-pointer appearance-none transition-all"
+                              >
+                                <option value="$" className="bg-gray-900 text-white">$ - Pesos / Dólar ($)</option>
+                                <option value="COP" className="bg-gray-900 text-white">COP - Peso Colombiano (COP)</option>
+                                <option value="USD" className="bg-gray-900 text-white">USD - Dólar Estadounidense (USD $)</option>
+                                <option value="€" className="bg-gray-900 text-white">€ - Euro (€)</option>
+                                <option value="MXN" className="bg-gray-900 text-white">MXN - Peso Mexicano (MXN $)</option>
+                                <option value="S/" className="bg-gray-900 text-white">S/ - Sol Peruano (S/)</option>
+                                <option value="CLP" className="bg-gray-900 text-white">CLP - Peso Chileno (CLP $)</option>
+                                <option value="ARS" className="bg-gray-900 text-white">ARS - Peso Argentino (ARS $)</option>
+                                <option value="Bs." className="bg-gray-900 text-white">Bs. - Boliviano (Bs.)</option>
+                              </select>
+                              <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-400">
+                                <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                                  <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                                </svg>
+                              </div>
+                            </div>
+                            <p className="text-[9px] text-gray-500 mt-1 font-semibold">Selecciona la moneda principal que verán tus clientes.</p>
                           </div>
                         </div>
 
@@ -2729,9 +2815,9 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                         <div className="pt-2">
                           <button
                             type="submit"
-                            className="px-5 py-3 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs rounded-xl shadow transition"
+                            className="px-5 py-3 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs rounded-xl shadow transition cursor-pointer flex items-center gap-2"
                           >
-                            Guardar Cambios de Tienda
+                            <Save className="w-4 h-4" /> Guardar Cambios de Tienda
                           </button>
                         </div>
                       </form>
@@ -3950,6 +4036,19 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* FLOATING SAVE BUTTON FOR MOBILE (STORE DESIGN TAB) */}
+      {activeTab === 'design' && (
+        <div className="md:hidden fixed bottom-[72px] left-3 right-3 z-40 bg-[#070b14]/95 backdrop-blur-xl border border-emerald-500/40 p-2.5 rounded-2xl shadow-[0_10px_25px_rgba(16,185,129,0.3)] flex items-center justify-between gap-3 animate-fade-in">
+          <button
+            type="submit"
+            form="store-profile-form"
+            className="w-full py-3 bg-gradient-to-r from-emerald-400 via-emerald-450 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+          >
+            <Save className="w-4 h-4 stroke-[2.5]" /> Guardar Cambios de Tienda
+          </button>
         </div>
       )}
 
