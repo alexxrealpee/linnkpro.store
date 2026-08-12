@@ -22,10 +22,71 @@ import PwaLoadingScreen from './components/PwaLoadingScreen';
 import PwaInstallModal from './components/PwaInstallModal';
 import { DriverProfile } from './types';
 
+// Helper function defined outside or hoisted for initial state computation
+const detectInitialRouteFromUrl = (): { view: 'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal' | 'carruselproduc'; username: string | null } => {
+  const searchParams = new URLSearchParams(window.location.search);
+  const queryUser = searchParams.get('u') || searchParams.get('store') || searchParams.get('user');
+
+  let pathUser = '';
+  try {
+    pathUser = decodeURIComponent(window.location.pathname.substring(1).trim());
+  } catch (e) {
+    pathUser = window.location.pathname.substring(1).trim();
+  }
+
+  while (pathUser.startsWith('/')) pathUser = pathUser.substring(1);
+  while (pathUser.endsWith('/')) pathUser = pathUser.substring(0, pathUser.length - 1);
+  if (pathUser.startsWith('@')) pathUser = pathUser.substring(1);
+  if (pathUser.toLowerCase() === 'index.html') pathUser = '';
+
+  let hashUser = '';
+  try {
+    hashUser = decodeURIComponent(window.location.hash.substring(1).trim());
+  } catch (e) {
+    hashUser = window.location.hash.substring(1).trim();
+  }
+
+  while (hashUser.startsWith('/')) hashUser = hashUser.substring(1);
+  while (hashUser.endsWith('/')) hashUser = hashUser.substring(0, hashUser.length - 1);
+  if (hashUser.startsWith('@')) hashUser = hashUser.substring(1);
+
+  const systemRoutes = ['login', 'signup', 'dashboard', 'admin', 'landing', 'vender', 'crear-tienda', 'tienda', 'tiendas', 'catalogo', 'domiciliario', 'driver-register', 'driver-portal', 'domiciliarios', 'carruselproduc', 'carrusel-productos', 'api', 'assets'];
+
+  const pathLower = pathUser.toLowerCase();
+  const hashLower = hashUser.toLowerCase();
+
+  if (['landing', 'vender', 'crear-tienda'].includes(pathLower) || ['landing', 'vender', 'crear-tienda'].includes(hashLower)) {
+    return { view: 'landing', username: null };
+  }
+  if (['tienda', 'tiendas', 'catalogo', ''].includes(pathLower) || ['tienda', 'tiendas', 'catalogo'].includes(hashLower)) {
+    return { view: 'tienda', username: null };
+  }
+  if (['carruselproduc', 'carrusel-productos'].includes(pathLower) || ['carruselproduc', 'carrusel-productos'].includes(hashLower)) {
+    return { view: 'carruselproduc', username: null };
+  }
+  if (['domiciliario', 'domiciliarios', 'driver-portal'].includes(pathLower) || ['domiciliario', 'domiciliarios', 'driver-portal'].includes(hashLower)) {
+    return { view: 'driver-portal', username: null };
+  }
+  if (['driver-register'].includes(pathLower) || ['driver-register'].includes(hashLower)) {
+    return { view: 'driver-register', username: null };
+  }
+
+  const cleanedPath = pathUser && !systemRoutes.includes(pathLower) ? pathUser : null;
+  const cleanedHash = hashUser && !systemRoutes.includes(hashLower) ? hashUser : null;
+  const username = queryUser || cleanedPath || cleanedHash || null;
+
+  if (username) {
+    return { view: 'profile', username };
+  }
+
+  return { view: 'tienda', username: null };
+};
+
 export default function App() {
-  // Routing states
-  const [view, setView] = useState<'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal' | 'carruselproduc'>('tienda');
-  const [targetUsername, setTargetUsername] = useState<string | null>(null);
+  // Routing initial states computed synchronously to prevent flash on refresh
+  const initialRoute = detectInitialRouteFromUrl();
+  const [view, setView] = useState<'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal' | 'carruselproduc'>(initialRoute.view);
+  const [targetUsername, setTargetUsername] = useState<string | null>(initialRoute.username);
   const [activeDriverSession, setActiveDriverSession] = useState<DriverProfile | null>(null);
   
   // Auth state
@@ -37,81 +98,15 @@ export default function App() {
 
   // 1. Unified function to detect target public profile username from URL
   const getUsernameFromUrl = (): string | null => {
-    const searchParams = new URLSearchParams(window.location.search);
-    const queryUser = searchParams.get('u');
-    
-    // Clean and decode pathname (e.g. /juan -> juan)
-    let pathUser = '';
-    try {
-      pathUser = decodeURIComponent(window.location.pathname.substring(1).trim());
-    } catch (e) {
-      pathUser = window.location.pathname.substring(1).trim();
-    }
-    
-    if (pathUser.endsWith('/')) {
-      pathUser = pathUser.substring(0, pathUser.length - 1);
-    }
-    // Also remove index.html or other boilerplate stuff if present
-    if (pathUser === 'index.html') {
-      pathUser = '';
-    }
-
-    // Clean hash values
-    let hashUser = '';
-    try {
-      hashUser = decodeURIComponent(window.location.hash.substring(1).trim());
-    } catch (e) {
-      hashUser = window.location.hash.substring(1).trim();
-    }
-    
-    if (hashUser.startsWith('/')) {
-      hashUser = hashUser.substring(1);
-    }
-
-    const systemRoutes = ['login', 'signup', 'dashboard', 'admin', 'landing', 'vender', 'crear-tienda', 'tienda', 'tiendas', 'catalogo', 'domiciliario', 'driver-register', 'driver-portal', 'domiciliarios', 'carruselproduc', 'carrusel-productos'];
-    const cleanedPath = pathUser && !systemRoutes.includes(pathUser.toLowerCase()) ? pathUser : null;
-    return queryUser || cleanedPath || (hashUser ? hashUser : null);
+    return detectInitialRouteFromUrl().username;
   };
 
   // 2. React to URL Changes dynamically
   useEffect(() => {
     const handleUrlRouteCheck = () => {
-      let pathUser = window.location.pathname.substring(1).trim().toLowerCase();
-      if (pathUser.endsWith('/')) {
-        pathUser = pathUser.substring(0, pathUser.length - 1);
-      }
-      let hashUser = window.location.hash.substring(1).trim().toLowerCase();
-      if (hashUser.startsWith('/')) {
-        hashUser = hashUser.substring(1);
-      }
-
-      if (['landing', 'vender', 'crear-tienda'].includes(pathUser) || ['landing', 'vender', 'crear-tienda', '/landing', '/vender', '/crear-tienda'].includes(hashUser)) {
-        setView('landing');
-        setTargetUsername(null);
-      } else if (['tienda', 'tiendas', 'catalogo', ''].includes(pathUser) || ['tienda', 'tiendas', 'catalogo', '/tienda', '/tiendas', '/catalogo'].includes(hashUser)) {
-        // /tienda or / or /tiendas displays TiendaGeneral (general directory/catalog)
-        setView('tienda');
-        setTargetUsername(null);
-      } else if (['carruselproduc', 'carrusel-productos'].includes(pathUser) || ['carruselproduc', 'carrusel-productos', '/carruselproduc', '/carrusel-productos'].includes(hashUser)) {
-        setView('carruselproduc');
-        setTargetUsername(null);
-      } else if (['domiciliario', 'domiciliarios', 'driver-portal'].includes(pathUser) || ['domiciliario', 'domiciliarios', 'driver-portal', '/domiciliario', '/domiciliarios', '/driver-portal'].includes(hashUser)) {
-        setView('driver-portal');
-        setTargetUsername(null);
-      } else if (['driver-register'].includes(pathUser) || ['driver-register', '/driver-register'].includes(hashUser)) {
-        setView('driver-register');
-        setTargetUsername(null);
-      } else {
-        const usernameToLoad = getUsernameFromUrl();
-        if (usernameToLoad) {
-          setTargetUsername(usernameToLoad);
-          setView('profile');
-        } else {
-          setTargetUsername(null);
-          // Default fallback displays TiendaGeneral
-          setView('tienda');
-        }
-      }
+      const route = detectInitialRouteFromUrl();
+      setView(route.view);
+      setTargetUsername(route.username);
     };
 
     // Run on mount

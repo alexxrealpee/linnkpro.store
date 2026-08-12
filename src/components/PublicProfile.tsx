@@ -265,20 +265,33 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
     return checkIsStoreClosed(profile);
   }, [profile, nowTick]);
 
+  const [retryCount, setRetryCount] = useState(0);
+
   useEffect(() => {
+    let isSubscribed = true;
     async function loadData() {
       setLoading(true);
       const clean = username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
       try {
-        const res = await fetchProfileByUsername(username);
+        let res = await fetchProfileByUsername(username);
         
+        // Auto-retry once after 1 second if profile wasn't found on cold initial load
+        if (!res?.profile && isSubscribed) {
+          await new Promise(r => setTimeout(r, 1000));
+          if (isSubscribed) {
+            res = await fetchProfileByUsername(username);
+          }
+        }
+
+        if (!isSubscribed) return;
+
         // Formulate loaded values with multi-tier failover
         let finalProfile = res?.profile || null;
         let finalLinks = (res?.profile && res?.links) ? res.links.filter(l => l && l.active) : [];
         let finalProducts = (res?.profile && res?.products) ? res.products.filter(p => p && p.active) : [];
         let finalTheme = res?.profile ? res?.customTheme : null;
 
-        // Fallback Tier 2: Check localized index registry (great for instant previews or sandbox fallbacks)
+        // Fallback Tier 2: Check localized index registry
         if (!finalProfile) {
           try {
             const localProfiles = JSON.parse(localStorage.getItem('linnk_profiles') || '{}');
@@ -303,23 +316,30 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
           
           // Track the public Page View
           trackPageView(finalProfile.uid);
+        } else {
+          setProfile(null);
         }
 
         // Fetch system delivery fee setting
         try {
           const sysSettings = await fetchSystemSettings();
-          if (sysSettings?.defaultDeliveryFee) {
+          if (sysSettings?.defaultDeliveryFee && isSubscribed) {
             setSystemDeliveryFee(sysSettings.defaultDeliveryFee);
           }
         } catch (e) {}
       } catch (err) {
         console.error("Error fetching public shop storefront", err);
       } finally {
-        setLoading(false);
+        if (isSubscribed) {
+          setLoading(false);
+        }
       }
     }
     loadData();
-  }, [username]);
+    return () => {
+      isSubscribed = false;
+    };
+  }, [username, retryCount]);
 
   const copyUrl = () => {
     const u = `${window.location.origin}/${username}`;
@@ -554,16 +574,33 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
   if (!profile) {
     return (
       <div className="min-h-screen bg-[#070b14] text-gray-100 flex flex-col items-center justify-center p-6 text-center">
-        <div className="p-4 bg-red-400/10 border border-red-500/20 rounded-3xl mb-6 text-red-500 shrink-0">
+        <div className="p-4 bg-amber-400/10 border border-amber-500/20 rounded-3xl mb-6 text-amber-400 shrink-0">
           <QrCode className="w-12 h-12" />
         </div>
-        <h2 className="text-2xl font-black mb-2">Página no encontrada</h2>
-        <p className="text-gray-400 max-w-sm mb-6 text-sm">El usuario &apos;{username}&apos; no está registrado todavía. ¡La tienda está disponible para que la reclames!</p>
+        <h2 className="text-2xl font-black mb-2">Tienda no encontrada</h2>
+        <p className="text-gray-400 max-w-sm mb-6 text-sm">No pudimos encontrar la tienda &apos;{username}&apos;. Si acabas de actualizar la página o es un enlace directo, intenta recargar.</p>
+        
+        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+          <button 
+            onClick={() => setRetryCount(prev => prev + 1)}
+            className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold rounded-xl px-5 py-3 text-sm transition-all shadow-lg shadow-emerald-500/20"
+          >
+            Reintentar Cargar
+          </button>
+          
+          <button 
+            onClick={() => onNavigateHome ? onNavigateHome() : window.location.href = '/tienda'}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl px-5 py-3 text-sm border border-slate-700 transition-all"
+          >
+            Ir a Tiendas Disponibles
+          </button>
+        </div>
+
         <button 
           onClick={() => onNavigateHome ? onNavigateHome(username) : undefined}
-          className="bg-emerald-400 text-black hover:bg-emerald-300 font-bold rounded-xl px-5 py-2.5 text-sm transition-all"
+          className="mt-6 text-xs text-emerald-400 hover:underline font-medium"
         >
-          Reclamar @{username} Gratis
+          ¿Es tu negocio? Reclamar @{username} Gratis
         </button>
       </div>
     );

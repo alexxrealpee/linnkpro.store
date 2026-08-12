@@ -196,133 +196,206 @@ export async function isUsernameAvailable(username: string): Promise<boolean> {
   }
 }
 
-// Fetch Profile by Username
+// Fetch Profile by Username with multi-tier resilient matching
 export async function fetchProfileByUsername(username: string): Promise<{ profile: UserProfile | null; links: LinkItem[]; products: ProductItem[]; customTheme: CustomTheme | null }> {
-  const clean = sanitizeUsername(username);
+  const rawInput = (username || '').trim();
+  const clean = sanitizeUsername(rawInput);
+  const cleanNoDash = clean.replace(/[-_]/g, '');
+
   try {
-    let q = query(collection(db, 'profiles'), where('username', '==', clean));
-    let snapshot = await getDocs(q);
+    // 1. Primary Query: exact match on sanitized username
+    let snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', clean)));
     
-    // Try original casing and @ prefix fallbacks if no match is found
-    if (snapshot.empty && username.trim() !== clean) {
-      const qAlt = query(collection(db, 'profiles'), where('username', '==', username.trim()));
-      snapshot = await getDocs(qAlt);
+    // 2. Query without dashes/underscores if present (e.g. /pollo-stop -> pollostop)
+    if (snapshot.empty && cleanNoDash !== clean) {
+      snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', cleanNoDash)));
+    }
+    
+    // 3. Try original casing, lowercased, and @ prefix fallbacks if no match is found
+    if (snapshot.empty && rawInput !== clean) {
+      snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', rawInput)));
     }
     if (snapshot.empty) {
-      const qAltLower = query(collection(db, 'profiles'), where('username', '==', username.trim().toLowerCase()));
-      snapshot = await getDocs(qAltLower);
+      snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', rawInput.toLowerCase())));
     }
     if (snapshot.empty) {
-      const qAt = query(collection(db, 'profiles'), where('username', '==', '@' + clean));
-      snapshot = await getDocs(qAt);
+      snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', '@' + clean)));
     }
-    if (snapshot.empty && username.trim()) {
-      const qAtOrig = query(collection(db, 'profiles'), where('username', '==', '@' + username.trim()));
-      snapshot = await getDocs(qAtOrig);
+    if (snapshot.empty && rawInput) {
+      snapshot = await getDocs(query(collection(db, 'profiles'), where('username', '==', '@' + rawInput)));
+    }
+
+    // 4. Try doc lookup directly by ID if clean or rawInput matches UID or document ID
+    if (snapshot.empty) {
+      try {
+        const targetDocId = clean || rawInput;
+        if (targetDocId) {
+          const docById = await getDoc(doc(db, 'profiles', targetDocId));
+          if (docById.exists()) {
+            const profile = { uid: docById.id, ...docById.data() } as UserProfile;
+            return await loadProfileRelations(profile, clean || rawInput);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 5. Comprehensive Fallback Scan: fetch all profiles and find match by username or slugified store name
+    if (snapshot.empty) {
+      try {
+        const allProfilesSnap = await getDocs(collection(db, 'profiles'));
+        let matchedDoc: any = null;
+        allProfilesSnap.forEach(d => {
+          if (matchedDoc) return;
+          const data = d.data() as UserProfile;
+          const uName = (data.username || '').trim().toLowerCase();
+          const uClean = sanitizeUsername(uName);
+          const uNoDash = uClean.replace(/[-_]/g, '');
+          
+          const dispName = (data.displayName || data.storeName || '').trim().toLowerCase();
+          const dispClean = sanitizeUsername(dispName);
+          const dispNoDash = dispClean.replace(/[-_]/g, '');
+
+          if (
+            uName === clean ||
+            uClean === clean ||
+            uNoDash === cleanNoDash ||
+            dispClean === clean ||
+            dispNoDash === cleanNoDash ||
+            d.id === clean ||
+            d.id === rawInput.toLowerCase()
+          ) {
+            matchedDoc = d;
+          }
+        });
+
+        if (matchedDoc) {
+          const profile = { uid: matchedDoc.id, ...matchedDoc.data() } as UserProfile;
+          return await loadProfileRelations(profile, clean || rawInput);
+        }
+      } catch (e) {
+        console.warn("Comprehensive profile scan error:", e);
+      }
     }
     
     if (snapshot.empty) {
       // Check offline fallback database
-      const localData = getLocalBackup(clean);
+      const localData = getLocalBackup(clean) || getLocalBackup(rawInput.toLowerCase());
       if (localData) return localData;
       return { profile: null, links: [], products: [], customTheme: null };
     }
 
     const pDoc = snapshot.docs[0];
     const profile = { uid: pDoc.id, ...pDoc.data() } as UserProfile;
+    return await loadProfileRelations(profile, clean || rawInput);
 
-    // Grant administrative access if email matches principal admin
-    if (profile.email && profile.email.toLowerCase() === 'alexxrealpee@gmail.com' && profile.role !== 'admin') {
-      profile.role = 'admin';
-    }
-
-    // Fetch links, products, and custom theme in parallel using a resilient Promise.all that handles individual failures
-    const lQuery = query(collection(db, 'links'), where('userId', '==', pDoc.id));
-    const pQuery = query(collection(db, 'products'), where('userId', '==', pDoc.id));
-    const tDocRef = doc(db, 'themes', pDoc.id);
-
-    const [lSnapshot, pSnapshot, tDoc] = await Promise.all([
-      getDocs(lQuery).catch(err => {
-        console.warn("Resilient load: error loading links from Firestore", err);
-        return null;
-      }),
-      getDocs(pQuery).catch(err => {
-        console.warn("Resilient load: error loading products from Firestore", err);
-        return null;
-      }),
-      getDoc(tDocRef).catch(err => {
-        console.warn("Resilient load: error loading custom theme from Firestore", err);
-        return null;
-      })
-    ]);
-
-    const links: LinkItem[] = [];
-    if (lSnapshot) {
-      lSnapshot.forEach(doc => {
-        links.push({ id: doc.id, ...doc.data() } as LinkItem);
-      });
-      try {
-        localStorage.setItem(`linnk_links_${pDoc.id}`, JSON.stringify(links));
-      } catch (e) {}
-    } else {
-      try {
-        const localKey = `linnk_links_${pDoc.id}`;
-        const localLinks = JSON.parse(localStorage.getItem(localKey) || '[]');
-        localLinks.forEach((ll: any) => links.push(ll));
-      } catch (e) {}
-    }
-    // Sort in-memory to prevent missing composite index errors on other devices
-    links.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    const products: ProductItem[] = [];
-    if (pSnapshot) {
-      pSnapshot.forEach(doc => {
-        products.push({ id: doc.id, ...doc.data() } as ProductItem);
-      });
-      try {
-        localStorage.setItem(`linnk_products_${pDoc.id}`, JSON.stringify(products));
-      } catch (e) {}
-    } else {
-      try {
-        const localKey = `linnk_products_${pDoc.id}`;
-        const localProds = JSON.parse(localStorage.getItem(localKey) || '[]');
-        localProds.forEach((lp: any) => products.push(lp));
-      } catch (e) {}
-    }
-
-    // Fetch theme
-    let customTheme: CustomTheme | null = null;
-    if (tDoc && tDoc.exists()) {
-      customTheme = tDoc.data() as CustomTheme;
-    } else {
-      // Try local fallback theme
-      try {
-        const localTheme = localStorage.getItem(`linnk_theme_${pDoc.id}`);
-        if (localTheme) {
-          customTheme = JSON.parse(localTheme);
-        }
-      } catch (e) {}
-    }
-
-    // Update Local fallback backup database
-    saveLocalBackup(clean, profile, links, products, customTheme);
-
-    return { profile, links, products, customTheme };
   } catch (error) {
     console.error("Firebase load profile error, using local fallback if available", error);
-    const localData = getLocalBackup(clean);
+    const localData = getLocalBackup(clean) || getLocalBackup(rawInput.toLowerCase());
     if (localData) return localData;
     return { profile: null, links: [], products: [], customTheme: null };
   }
 }
 
+// Helper to load profile relations (links, products, custom theme) with failover
+async function loadProfileRelations(profile: UserProfile, searchKey: string) {
+  if (profile.email && profile.email.toLowerCase() === 'alexxrealpee@gmail.com' && profile.role !== 'admin') {
+    profile.role = 'admin';
+  }
+
+  // Fetch links, products, and custom theme in parallel
+  const lQuery = query(collection(db, 'links'), where('userId', '==', profile.uid));
+  const pQuery = query(collection(db, 'products'), where('userId', '==', profile.uid));
+  const tDocRef = doc(db, 'themes', profile.uid);
+
+  const [lSnapshot, pSnapshot, tDoc] = await Promise.all([
+    getDocs(lQuery).catch(err => {
+      console.warn("Resilient load: error loading links from Firestore", err);
+      return null;
+    }),
+    getDocs(pQuery).catch(err => {
+      console.warn("Resilient load: error loading products from Firestore", err);
+      return null;
+    }),
+    getDoc(tDocRef).catch(err => {
+      console.warn("Resilient load: error loading custom theme from Firestore", err);
+      return null;
+    })
+  ]);
+
+  const links: LinkItem[] = [];
+  if (lSnapshot) {
+    lSnapshot.forEach(doc => {
+      links.push({ id: doc.id, ...doc.data() } as LinkItem);
+    });
+    try {
+      localStorage.setItem(`linnk_links_${profile.uid}`, JSON.stringify(links));
+    } catch (e) {}
+  } else {
+    try {
+      const localKey = `linnk_links_${profile.uid}`;
+      const localLinks = JSON.parse(localStorage.getItem(localKey) || '[]');
+      localLinks.forEach((ll: any) => links.push(ll));
+    } catch (e) {}
+  }
+  links.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const products: ProductItem[] = [];
+  if (pSnapshot) {
+    pSnapshot.forEach(doc => {
+      products.push({ id: doc.id, ...doc.data() } as ProductItem);
+    });
+    try {
+      localStorage.setItem(`linnk_products_${profile.uid}`, JSON.stringify(products));
+    } catch (e) {}
+  } else {
+    try {
+      const localKey = `linnk_products_${profile.uid}`;
+      const localProds = JSON.parse(localStorage.getItem(localKey) || '[]');
+      localProds.forEach((lp: any) => products.push(lp));
+    } catch (e) {}
+  }
+
+  let customTheme: CustomTheme | null = null;
+  if (tDoc && tDoc.exists()) {
+    customTheme = tDoc.data() as CustomTheme;
+  } else {
+    try {
+      const localTheme = localStorage.getItem(`linnk_theme_${profile.uid}`);
+      if (localTheme) {
+        customTheme = JSON.parse(localTheme);
+      }
+    } catch (e) {}
+  }
+
+  // Update Local fallback backup database
+  saveLocalBackup(searchKey, profile, links, products, customTheme);
+  if (profile.username) {
+    saveLocalBackup(profile.username, profile, links, products, customTheme);
+  }
+
+  return { profile, links, products, customTheme };
+}
+
 // User-authored backup inside localStorage to survive network outages or rule gaps
 function getLocalBackup(username: string) {
   try {
-    const key = `linnk_profile_${username}`;
+    const clean = sanitizeUsername(username || '');
+    if (!clean) return null;
+
+    const key = `linnk_profile_${clean}`;
     const data = localStorage.getItem(key);
     if (data) {
       return JSON.parse(data);
+    }
+    // Try fallback dict
+    const localProfiles = JSON.parse(localStorage.getItem('linnk_profiles') || '{}');
+    if (localProfiles[clean]) {
+      const prof = localProfiles[clean];
+      const uid = prof.uid;
+      const links = JSON.parse(localStorage.getItem(`linnk_links_${uid}`) || '[]');
+      const products = JSON.parse(localStorage.getItem(`linnk_products_${uid}`) || '[]');
+      const customTheme = JSON.parse(localStorage.getItem(`linnk_theme_${uid}`) || 'null');
+      return { profile: prof, links, products, customTheme };
     }
   } catch(e){}
   return null;
@@ -330,8 +403,15 @@ function getLocalBackup(username: string) {
 
 function saveLocalBackup(username: string, profile: any, links: any[], products: any[], theme: any) {
   try {
-    const key = `linnk_profile_${username}`;
+    const clean = sanitizeUsername(username || '');
+    if (!clean || !profile) return;
+    const key = `linnk_profile_${clean}`;
     localStorage.setItem(key, JSON.stringify({ profile, links, products, customTheme: theme }));
+    
+    // Also update linnk_profiles dictionary
+    const localProfiles = JSON.parse(localStorage.getItem('linnk_profiles') || '{}');
+    localProfiles[clean] = profile;
+    localStorage.setItem('linnk_profiles', JSON.stringify(localProfiles));
   } catch(e){}
 }
 
