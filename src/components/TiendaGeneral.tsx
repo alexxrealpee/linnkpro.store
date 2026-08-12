@@ -770,12 +770,18 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.25 }}
-                  className="bg-[#111827] border border-[#232B3A] hover:border-[#E63946]/50 rounded-2xl overflow-hidden flex flex-col group transition duration-300 relative"
+                  onClick={() => setSelectedProduct(product)}
+                  className="bg-[#111827] border border-[#232B3A] hover:border-[#E63946]/50 rounded-2xl overflow-hidden flex flex-col group transition duration-300 relative cursor-pointer"
                 >
                   {/* Store source badge on top right */}
-                  <div className="absolute top-3 left-3 z-10">
+                  <div className="absolute top-3 left-3 z-20">
                     <button
-                      onClick={() => onNavigateToStore(profile.username)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (profile?.username) {
+                          onNavigateToStore(profile.username);
+                        }
+                      }}
                       className="flex items-center gap-1.5 px-2.5 py-1 bg-[#090B12]/85 hover:bg-[#090B12] border border-[#232B3A] rounded-full transition text-[10px] font-black tracking-wide text-white cursor-pointer backdrop-blur-md"
                     >
                       <Store className="w-3 h-3 text-[#E63946]" />
@@ -784,7 +790,13 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                   </div>
 
                   {/* Product photo image preview wrapper */}
-                  <div className="relative aspect-square w-full bg-[#090B12] overflow-hidden shrink-0">
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedProduct(product);
+                    }}
+                    className="relative aspect-square w-full bg-[#090B12] overflow-hidden shrink-0 cursor-pointer"
+                  >
                     {isOnSale && (
                       <span className="absolute top-3 right-3 z-10 bg-[#E63946] text-white font-black text-[9px] uppercase px-2 py-0.5 rounded shadow tracking-wider">
                         -{discountPercentage}% OFF
@@ -807,13 +819,10 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                     )}
 
                     {/* Quick overlay actions on hover */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
-                      <button 
-                        onClick={() => setSelectedProduct(product)}
-                        className="p-2.5 bg-[#E63946] hover:bg-[#D62839] text-white font-bold rounded-xl transition shadow hover:scale-110 active:scale-95 cursor-pointer text-xs uppercase tracking-wider flex items-center gap-1"
-                      >
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 pointer-events-none sm:pointer-events-auto">
+                      <span className="p-2.5 bg-[#E63946] hover:bg-[#D62839] text-white font-bold rounded-xl transition shadow hover:scale-110 active:scale-95 cursor-pointer text-xs uppercase tracking-wider flex items-center gap-1">
                         Ver Detalles
-                      </button>
+                      </span>
                     </div>
                   </div>
 
@@ -846,8 +855,11 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                       </div>
 
                       <button
-                        onClick={() => setSelectedProduct(product)}
-                        className="px-3 py-1.5 bg-[#E63946] hover:bg-[#D62839] text-white font-black text-[10px] uppercase tracking-wider rounded-lg transition cursor-pointer flex items-center gap-1 shadow-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedProduct(product);
+                        }}
+                        className="px-3 py-1.5 bg-[#E63946] hover:bg-[#D62839] text-white font-black text-[10px] uppercase tracking-wider rounded-lg transition cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
                         title="Ver detalles y agregar al carrito"
                       >
                         <ShoppingBag className="w-3.5 h-3.5 text-white" /> Pedir
