@@ -24,14 +24,29 @@ import { DriverProfile } from './types';
 
 // Helper function defined outside or hoisted for initial state computation
 const detectInitialRouteFromUrl = (): { view: 'landing' | 'login' | 'signup' | 'dashboard' | 'profile' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal' | 'carruselproduc'; username: string | null } => {
+  let search = window.location.search;
+  let pathname = window.location.pathname;
+
+  // Handle SPA 404 redirect fallback parameter format (e.g. Hostinger 404 redirect /?/pollostop)
+  if (search.startsWith('?/')) {
+    const redirected = search.substring(2).split('&')[0];
+    if (redirected) {
+      pathname = '/' + redirected;
+      try {
+        const cleanSearch = search.includes('&') ? '?' + search.split('&').slice(1).join('&') : '';
+        window.history.replaceState(null, '', pathname + cleanSearch + window.location.hash);
+      } catch (e) {}
+    }
+  }
+
   const searchParams = new URLSearchParams(window.location.search);
   const queryUser = searchParams.get('u') || searchParams.get('store') || searchParams.get('user');
 
   let pathUser = '';
   try {
-    pathUser = decodeURIComponent(window.location.pathname.substring(1).trim());
+    pathUser = decodeURIComponent(pathname.substring(1).trim());
   } catch (e) {
-    pathUser = window.location.pathname.substring(1).trim();
+    pathUser = pathname.substring(1).trim();
   }
 
   while (pathUser.startsWith('/')) pathUser = pathUser.substring(1);

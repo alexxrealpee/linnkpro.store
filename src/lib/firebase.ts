@@ -251,7 +251,7 @@ export async function fetchProfileByUsername(username: string): Promise<{ profil
           const uClean = sanitizeUsername(uName);
           const uNoDash = uClean.replace(/[-_]/g, '');
           
-          const dispName = (data.displayName || data.storeName || '').trim().toLowerCase();
+          const dispName = (data.displayName || (data as any).storeName || '').trim().toLowerCase();
           const dispClean = sanitizeUsername(dispName);
           const dispNoDash = dispClean.replace(/[-_]/g, '');
 
