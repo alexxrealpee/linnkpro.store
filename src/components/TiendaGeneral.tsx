@@ -490,7 +490,7 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
 
             <button 
               onClick={() => {
-                window.history.pushState({}, '', '/tienda');
+                window.history.pushState({}, '', '/landing');
                 window.dispatchEvent(new Event('popstate'));
               }}
               className="hidden md:inline-block bg-[#E63946] hover:bg-[#D62839] text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition duration-150 uppercase tracking-wider cursor-pointer shadow-md"

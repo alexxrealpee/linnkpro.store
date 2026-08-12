@@ -68,7 +68,8 @@ export default function App() {
       hashUser = hashUser.substring(1);
     }
 
-    const cleanedPath = pathUser && !['login', 'signup', 'dashboard', 'admin', 'tienda', 'domiciliario', 'driver-register', 'driver-portal', 'domiciliarios', 'carruselproduc'].includes(pathUser.toLowerCase()) ? pathUser : null;
+    const systemRoutes = ['login', 'signup', 'dashboard', 'admin', 'landing', 'vender', 'crear-tienda', 'tienda', 'tiendas', 'catalogo', 'domiciliario', 'driver-register', 'driver-portal', 'domiciliarios', 'carruselproduc', 'carrusel-productos'];
+    const cleanedPath = pathUser && !systemRoutes.includes(pathUser.toLowerCase()) ? pathUser : null;
     return queryUser || cleanedPath || (hashUser ? hashUser : null);
   };
 
@@ -84,17 +85,20 @@ export default function App() {
         hashUser = hashUser.substring(1);
       }
 
-      if (pathUser === 'tienda' || hashUser === 'tienda') {
-        // /tienda route now displays LandingPage
+      if (['landing', 'vender', 'crear-tienda'].includes(pathUser) || ['landing', 'vender', 'crear-tienda', '/landing', '/vender', '/crear-tienda'].includes(hashUser)) {
         setView('landing');
         setTargetUsername(null);
-      } else if (pathUser === 'carruselproduc' || hashUser === 'carruselproduc' || pathUser === 'carrusel-productos' || hashUser === 'carrusel-productos') {
+      } else if (['tienda', 'tiendas', 'catalogo', ''].includes(pathUser) || ['tienda', 'tiendas', 'catalogo', '/tienda', '/tiendas', '/catalogo'].includes(hashUser)) {
+        // /tienda or / or /tiendas displays TiendaGeneral (general directory/catalog)
+        setView('tienda');
+        setTargetUsername(null);
+      } else if (['carruselproduc', 'carrusel-productos'].includes(pathUser) || ['carruselproduc', 'carrusel-productos', '/carruselproduc', '/carrusel-productos'].includes(hashUser)) {
         setView('carruselproduc');
         setTargetUsername(null);
-      } else if (pathUser === 'domiciliario' || pathUser === 'domiciliarios' || pathUser === 'driver-portal' || hashUser === 'domiciliario' || hashUser === 'domiciliarios' || hashUser === 'driver-portal') {
+      } else if (['domiciliario', 'domiciliarios', 'driver-portal'].includes(pathUser) || ['domiciliario', 'domiciliarios', 'driver-portal', '/domiciliario', '/domiciliarios', '/driver-portal'].includes(hashUser)) {
         setView('driver-portal');
         setTargetUsername(null);
-      } else if (pathUser === 'driver-register' || hashUser === 'driver-register') {
+      } else if (['driver-register'].includes(pathUser) || ['driver-register', '/driver-register'].includes(hashUser)) {
         setView('driver-register');
         setTargetUsername(null);
       } else {
@@ -104,7 +108,7 @@ export default function App() {
           setView('profile');
         } else {
           setTargetUsername(null);
-          // Root path '/' now displays TiendaGeneral (general directory/catalog)
+          // Default fallback displays TiendaGeneral
           setView('tienda');
         }
       }
@@ -138,8 +142,8 @@ export default function App() {
           const activeUserProfileUrl = getUsernameFromUrl();
           const pathUser = window.location.pathname.substring(1).trim().toLowerCase();
           const hashVal = window.location.hash.toLowerCase();
-          const isPublicRoute = ['tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
-            ['#tienda', '#/tienda', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
+          const isPublicRoute = ['tienda', 'tiendas', 'catalogo', 'landing', 'vender', 'crear-tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
+            ['#tienda', '#/tienda', '#tiendas', '#/tiendas', '#catalogo', '#/catalogo', '#landing', '#/landing', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
 
           if (!activeUserProfileUrl && !isPublicRoute) {
             setView(profile.suspended ? 'landing' : 'dashboard');
@@ -162,8 +166,8 @@ export default function App() {
           const activeUserProfileUrl = getUsernameFromUrl();
           const pathUser = window.location.pathname.substring(1).trim().toLowerCase();
           const hashVal = window.location.hash.toLowerCase();
-          const isPublicRoute = ['tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
-            ['#tienda', '#/tienda', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
+          const isPublicRoute = ['tienda', 'tiendas', 'catalogo', 'landing', 'vender', 'crear-tienda', 'domiciliario', 'domiciliarios', 'driver-register', 'driver-portal', 'carruselproduc'].includes(pathUser) ||
+            ['#tienda', '#/tienda', '#tiendas', '#/tiendas', '#catalogo', '#/catalogo', '#landing', '#/landing', '#domiciliario', '#/domiciliario', '#driver-portal', '#/driver-portal', '#carruselproduc', '#/carruselproduc'].includes(hashVal);
 
           if (!activeUserProfileUrl && !isPublicRoute) {
             setView('dashboard');
@@ -222,10 +226,10 @@ export default function App() {
         <LandingPage 
           onNavigate={(targetView, customUser) => {
             if (targetView === 'tienda') {
-              window.history.pushState({}, '', '/');
+              window.history.pushState({}, '', '/tienda');
               setView('tienda');
             } else if (targetView === 'landing') {
-              window.history.pushState({}, '', '/tienda');
+              window.history.pushState({}, '', '/landing');
               setView('landing');
             } else {
               if (customUser) {
