@@ -62,6 +62,7 @@ import {
   Terminal,
   Flame,
   Utensils,
+  Wine,
   ChefHat,
   Smartphone,
   AlertTriangle,
@@ -1005,8 +1006,51 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
         </AnimatePresence>
       </header>
 
-      {/* 2. IMMERSIVE HERO AREA (COSMIC LIFESTYLE PORTRAIT) */}
-      {storeLayout === 'shoes' ? (
+      {/* 2. IMMERSIVE HERO AREA */}
+      {storeLayout === 'liquor' ? (
+        <section 
+          id="store-hero" 
+          className="w-full relative min-h-[440px] md:min-h-[520px] lg:min-h-[600px] flex items-center justify-center bg-[#0c0617] overflow-hidden text-center border-b border-purple-500/20"
+        >
+          <div className="absolute inset-0 z-0">
+            {profile.coverURL ? (
+              <img 
+                src={profile.coverURL} 
+                alt="Portada Licorera" 
+                className="w-full h-full object-cover opacity-50 scale-102 filter contrast-125 saturate-120" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
+              />
+            ) : (
+              <img 
+                src="https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=1800&q=80" 
+                alt="Licorera Express" 
+                className="w-full h-full object-cover opacity-45 filter contrast-120" 
+                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
+              />
+            )}
+            <div className="absolute -left-1/4 -bottom-1/4 w-[150%] h-[150%] bg-gradient-to-tr from-purple-600/20 via-pink-500/10 to-transparent pointer-events-none" />
+          </div>
+
+          <div className="relative z-10 max-w-4xl px-4 py-16 flex flex-col items-center">
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight tracking-tight mb-4 max-w-3xl drop-shadow-2xl uppercase">
+              {profile.coverTitle ? profile.coverTitle : <>LICORES & COMBOS <br /><span className="bg-gradient-to-r from-amber-300 via-pink-400 to-purple-400 bg-clip-text text-transparent">EXPRESS</span></>}
+            </h1>
+            
+            <p className="text-xs md:text-sm font-bold max-w-md text-gray-300 opacity-95 leading-relaxed max-w-xl mb-8 drop-shadow font-sans">
+              {profile.bio || 'Tus licores, cervezas frías, licores importados, snacks y combos favoritos con domicilio express listo para llevar.'}
+            </p>
+
+            {renderHeroSocials()}
+
+            <button 
+              onClick={() => scrollToSection('store-category-row')}
+              className="px-9 py-4 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white font-black text-xs tracking-widest uppercase rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl shadow-purple-600/30 cursor-pointer flex items-center gap-2"
+            >
+              VER LICORES <Wine className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </div>
+        </section>
+      ) : storeLayout === 'shoes' ? (
         <section 
           id="store-hero" 
           className="w-full relative min-h-[440px] md:min-h-[520px] lg:min-h-[600px] flex items-center justify-center bg-zinc-950 overflow-hidden text-center"
@@ -1046,49 +1090,6 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
               className="px-10 py-4 bg-amber-400 text-black font-black text-xs tracking-widest uppercase rounded-none skew-x-[-12deg] hover:bg-white hover:scale-105 active:scale-95 transition-all shadow-2xl hover:shadow-amber-500/20 cursor-pointer flex items-center gap-2"
             >
               <span className="inline-block skew-x-[12deg] flex items-center gap-2">VER EL CATÁLOGO <ArrowRight className="w-4 h-4 stroke-[2.5]" /></span>
-            </button>
-          </div>
-        </section>
-      ) : storeLayout === 'food' ? (
-        <section 
-          id="store-hero" 
-          className="w-full relative min-h-[440px] md:min-h-[520px] lg:min-h-[600px] flex items-center justify-center bg-stone-950 overflow-hidden text-center"
-        >
-          <div className="absolute inset-0 z-0">
-            {profile.coverURL ? (
-              <img 
-                src={profile.coverURL} 
-                alt="Portada Gastronómica" 
-                className="w-full h-full object-cover opacity-55 scale-102 filter contrast-110 saturate-120" 
-                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
-              />
-            ) : (
-              <img 
-                src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1800&q=80" 
-                alt="Delicious Gourmet Food" 
-                className="w-full h-full object-cover opacity-50 filter contrast-115" 
-                style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
-              />
-            )}
-            <div className="absolute -right-1/4 -bottom-1/4 w-[150%] h-[150%] bg-gradient-to-bl from-amber-500/10 to-transparent pointer-events-none" />
-          </div>
-
-          <div className="relative z-10 max-w-4xl px-4 py-16 flex flex-col items-center">
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight tracking-tight mb-4 max-w-3xl drop-shadow-2xl">
-              {profile.coverTitle ? profile.coverTitle : <>SABORES QUE <br />CONECTAN CON TU <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-red-500 bg-clip-text text-transparent">ALMA</span></>}
-            </h1>
-            
-            <p className="text-xs md:text-sm font-bold max-w-md text-gray-300 opacity-95 leading-relaxed max-w-xl mb-8 drop-shadow font-sans">
-              {profile.bio || 'Ingredientes frescos de origen local, recetas artesanales preparadas con el máximo cuidado y listas para disfrutar directamente en tu mesa.'}
-            </p>
-
-            {renderHeroSocials()}
-
-            <button 
-              onClick={() => scrollToSection('store-category-row')}
-              className="px-9 py-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-xs tracking-widest uppercase rounded-full hover:from-amber-400 hover:to-orange-400 hover:scale-105 active:scale-95 transition-all shadow-xl hover:shadow-orange-500/20 cursor-pointer flex items-center gap-2"
-            >
-              EXPLORAR MENÚ <Utensils className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
         </section>
@@ -1136,46 +1137,46 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
           </div>
         </section>
       ) : (
+        /* Restaurante / Food (Default) */
         <section 
           id="store-hero" 
-          className="w-full relative min-h-[440px] md:min-h-[520px] lg:min-h-[600px] flex items-center justify-center bg-zinc-950 overflow-hidden text-center"
+          className="w-full relative min-h-[440px] md:min-h-[520px] lg:min-h-[600px] flex items-center justify-center bg-stone-950 overflow-hidden text-center"
         >
-          {profile.coverURL ? (
-            <div className="absolute inset-0 z-0">
+          <div className="absolute inset-0 z-0">
+            {profile.coverURL ? (
               <img 
                 src={profile.coverURL} 
-                alt="Portada de Tienda" 
-                className="w-full h-full object-cover opacity-60 filter grayscale-[20%]" 
+                alt="Portada Gastronómica" 
+                className="w-full h-full object-cover opacity-55 scale-102 filter contrast-110 saturate-120" 
                 style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
-            </div>
-          ) : (
-            <div className="absolute inset-0 z-0">
+            ) : (
               <img 
-                src="https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1800&q=80" 
-                alt="Default Banner Coleccion" 
-                className="w-full h-full object-cover opacity-50 filter grayscale-[30%]" 
+                src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1800&q=80" 
+                alt="Delicious Gourmet Food" 
+                className="w-full h-full object-cover opacity-50 filter contrast-115" 
                 style={{ opacity: profile.coverOpacity !== undefined ? profile.coverOpacity / 100 : undefined }}
               />
-            </div>
-          )}
+            )}
+            <div className="absolute -right-1/4 -bottom-1/4 w-[150%] h-[150%] bg-gradient-to-bl from-amber-500/10 to-transparent pointer-events-none" />
+          </div>
 
           <div className="relative z-10 max-w-4xl px-4 py-16 flex flex-col items-center">
-            <h1 className="text-3xl md:text-5xl lg:text-6xl font-black text-white leading-tight tracking-tight mb-4 max-w-3xl drop-shadow-lg uppercase">
-              {profile.coverTitle ? profile.coverTitle : <>Define tu estilo <br className="hidden md:inline"/>con {profile.displayName || 'Moda Urbana'}</>}
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight tracking-tight mb-4 max-w-3xl drop-shadow-2xl">
+              {profile.coverTitle ? profile.coverTitle : <>SABORES QUE <br />CONECTAN CON TU <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-red-500 bg-clip-text text-transparent">ALMA</span></>}
             </h1>
             
-            <p className="text-xs md:text-sm font-semibold max-w-md text-gray-200 opacity-90 leading-relaxed max-w-xl mb-8 drop-shadow">
-              {profile.bio || 'Explora nuestras categorías exclusivas para el nómada moderno. Catálogo directo con compra rápida y segura por WhatsApp.'}
+            <p className="text-xs md:text-sm font-bold max-w-md text-gray-300 opacity-95 leading-relaxed max-w-xl mb-8 drop-shadow font-sans">
+              {profile.bio || 'Ingredientes frescos de origen local, recetas artesanales preparadas con el máximo cuidado y listas para disfrutar directamente en tu mesa.'}
             </p>
 
             {renderHeroSocials()}
 
             <button 
               onClick={() => scrollToSection('store-category-row')}
-              className="px-8 py-3.5 bg-white text-black font-extrabold text-[11px] tracking-widest uppercase rounded-full hover:bg-emerald-400 hover:text-black hover:scale-105 active:scale-95 transition-all shadow-xl cursor-pointer flex items-center gap-2"
+              className="px-9 py-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-xs tracking-widest uppercase rounded-full hover:from-amber-400 hover:to-orange-400 hover:scale-105 active:scale-95 transition-all shadow-xl hover:shadow-orange-500/20 cursor-pointer flex items-center gap-2"
             >
-              Comprar Ahora <ArrowRight className="w-3.5 h-3.5" />
+              EXPLORAR MENÚ <Utensils className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
         </section>
@@ -1333,6 +1334,76 @@ export default function PublicProfile({ username, onNavigateHome }: PublicProfil
                             <span className="inline-block skew-x-[10deg] flex items-center gap-1">
                               COMPRAR <Plus className="w-3 h-3 stroke-[3]" />
                             </span>
+                          </div>
+                        </div>
+
+                      </div>
+                    );
+                  }
+
+                  if (storeLayout === 'liquor') {
+                    // LICORERA / BEVERAGES CARD DESIGN
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => handleOpenProductSelection(p)}
+                        className="group hover:border-purple-400/80 border rounded-3xl overflow-hidden p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:-translate-y-1 duration-300 hover:shadow-[0_12px_25px_rgba(168,85,247,0.2)] relative bg-[#120a1f]/80 border-purple-900/40 backdrop-blur-sm"
+                        style={{ borderColor: activeTheme.cardBorder }}
+                      >
+                        {isDiscounted && (
+                          <span className="absolute top-3.5 left-3.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-[9px] px-2.5 py-1 rounded-full uppercase tracking-widest z-10 shadow-md">
+                            OFERTA BOTELLA
+                          </span>
+                        )}
+
+                        <div>
+                          <div className="w-full aspect-square bg-[#0b0514] rounded-2xl mb-4 overflow-hidden flex items-center justify-center text-3xl font-bold relative border border-purple-900/30 p-2">
+                            {p.imageURL ? (
+                              <img 
+                                src={p.imageURL} 
+                                alt={p.name} 
+                                className="w-full h-full object-cover rounded-2xl group-hover:scale-105 transition-all duration-500" 
+                                referrerPolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <span>🍾</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest block font-mono">
+                              🍷 {p.category || 'LICORES'}
+                            </span>
+                            <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-0.5">
+                              • FRÍO & EXPRESS
+                            </span>
+                          </div>
+
+                          <h4 className="text-xs font-extrabold line-clamp-2 text-white leading-tight min-h-[2.2rem] group-hover:text-purple-300 transition-colors">
+                            {p.name}
+                          </h4>
+                          {p.description && (
+                            <p className="text-[10px] text-gray-400 line-clamp-1 leading-normal mt-1 mb-2">
+                              {p.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1 mt-3 pt-3 border-t border-purple-900/40">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-extrabold text-white">
+                              {getStoreCurrency()}{Number(p.price || 0).toLocaleString()}
+                            </span>
+                            {p.compareAtPrice && (
+                              <span className="text-[9px] text-gray-500 line-through">
+                                {getStoreCurrency()}{Number(p.compareAtPrice || 0).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-[9px] rounded-full uppercase tracking-wider group-hover:from-purple-500 group-hover:to-pink-500 active:scale-[0.97] transition flex items-center gap-1 shadow-md shadow-purple-600/20">
+                            PEDIR <Wine className="w-3 h-3 text-amber-300" />
                           </div>
                         </div>
 

@@ -36,6 +36,7 @@ import {
   ExternalLink,
   Cpu,
   Utensils,
+  Wine,
   ChefHat,
   Clock,
   Instagram,
@@ -534,7 +535,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
   };
 
   // Select Layout style
-  const handleSelectLayout = async (layout: 'default' | 'shoes' | 'tech' | 'food') => {
+  const handleSelectLayout = async (layout: 'food' | 'liquor' | 'default' | 'shoes' | 'tech') => {
     try {
       const updatedProfile = {
         ...profile,
@@ -2745,98 +2746,50 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                           </div>
                           
                           <div className="grid grid-cols-1 gap-3">
-                            {/* Option 1: Default / Classic */}
-                            <button
-                              type="button"
-                              onClick={() => handleSelectLayout('default')}
-                              className={`p-4 rounded-xl border text-left flex items-start justify-between transition ${
-                                (profile.layout || 'default') === 'default'
-                                  ? 'border-emerald-500 bg-emerald-500/5'
-                                  : 'border-gray-900 bg-gray-920 hover:border-gray-800'
-                              }`}
-                            >
-                              <div className="flex gap-3">
-                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 mt-0.5 shrink-0">
-                                  <ShoppingBag className="w-4 h-4 text-emerald-400" />
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-extrabold text-white">Diseño Clásico (Actual)</h4>
-                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">La interfaz clásica y elegante. Ideal para todo tipo de productos, con una cuadrícula limpia y ordenada.</p>
-                                </div>
-                              </div>
-                              {(profile.layout || 'default') === 'default' && (
-                                <Check className="w-4.5 h-4.5 text-emerald-400 shrink-0 ml-2" />
-                              )}
-                            </button>
-
-                            {/* Option 2: Shoes / Sports */}
-                            <button
-                              type="button"
-                              onClick={() => handleSelectLayout('shoes')}
-                              className={`p-4 rounded-xl border text-left flex items-start justify-between transition ${
-                                profile.layout === 'shoes'
-                                  ? 'border-emerald-500 bg-emerald-500/5'
-                                  : 'border-gray-900 bg-gray-920 hover:border-gray-800'
-                              }`}
-                            >
-                              <div className="flex gap-3">
-                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 mt-0.5 shrink-0">
-                                  <Sparkles className="w-4 h-4 text-amber-400" />
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-extrabold text-white">Diseño Zapatos & Deporte</h4>
-                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">Énfasis audaz en el producto y estilo deportivo. Presentación visual imponente con insignias dinámicas, ideal para calzado y moda urbana.</p>
-                                </div>
-                              </div>
-                              {profile.layout === 'shoes' && (
-                                <Check className="w-4.5 h-4.5 text-emerald-400 shrink-0 ml-2" />
-                              )}
-                            </button>
-
-                            {/* Option 3: Tech / Futuristic */}
-                            <button
-                              type="button"
-                              onClick={() => handleSelectLayout('tech')}
-                              className={`p-4 rounded-xl border text-left flex items-start justify-between transition ${
-                                profile.layout === 'tech'
-                                    ? 'border-emerald-500 bg-emerald-500/5'
-                                    : 'border-gray-900 bg-gray-920 hover:border-gray-800'
-                              }`}
-                            >
-                              <div className="flex gap-3">
-                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 mt-0.5 shrink-0">
-                                  <Smartphone className="w-4 h-4 text-indigo-400" />
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-extrabold text-white">Diseño de Celulares & Tecnología</h4>
-                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">Diseño moderno, limpio y de alto impacto ideal para la venta de celulares, smartphones y accesorios. Optimizado para mostrar especificaciones y fotografías de alta resolución.</p>
-                                </div>
-                              </div>
-                              {profile.layout === 'tech' && (
-                                <Check className="w-4.5 h-4.5 text-emerald-400 shrink-0 ml-2" />
-                              )}
-                            </button>
-
-                            {/* Option 4: Food / Gourmet */}
+                            {/* Option 1: Restaurante */}
                             <button
                               type="button"
                               onClick={() => handleSelectLayout('food')}
                               className={`p-4 rounded-xl border text-left flex items-start justify-between transition ${
-                                profile.layout === 'food'
+                                (profile.layout || 'food') !== 'liquor'
                                   ? 'border-emerald-500 bg-emerald-500/5'
                                   : 'border-gray-900 bg-gray-920 hover:border-gray-800'
                               }`}
                             >
                               <div className="flex gap-3">
-                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 mt-0.5 shrink-0">
+                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-amber-500 mt-0.5 shrink-0">
                                   <Utensils className="w-4 h-4 text-amber-500" />
                                 </div>
                                 <div>
-                                  <h4 className="text-xs font-extrabold text-white">Diseño Gourmet & Comida</h4>
-                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">Menú gastronómico cálido, apetitoso y de alta legibilidad. Ideal para restaurantes, cafeterías, reposterías o entrega a domicilio.</p>
+                                  <h4 className="text-xs font-extrabold text-white">Diseño Restaurante</h4>
+                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">Menú gastronómico cálido, apetitoso y de alta legibilidad. Ideal para restaurantes, comidas rápidas, cafeterías, reposterías y entrega a domicilio.</p>
                                 </div>
                               </div>
-                              {profile.layout === 'food' && (
+                              {(profile.layout || 'food') !== 'liquor' && (
+                                <Check className="w-4.5 h-4.5 text-emerald-400 shrink-0 ml-2" />
+                              )}
+                            </button>
+
+                            {/* Option 2: Licorera */}
+                            <button
+                              type="button"
+                              onClick={() => handleSelectLayout('liquor')}
+                              className={`p-4 rounded-xl border text-left flex items-start justify-between transition ${
+                                profile.layout === 'liquor'
+                                  ? 'border-emerald-500 bg-emerald-500/5'
+                                  : 'border-gray-900 bg-gray-920 hover:border-gray-800'
+                              }`}
+                            >
+                              <div className="flex gap-3">
+                                <div className="p-2 rounded-lg bg-gray-900 border border-gray-800 text-purple-400 mt-0.5 shrink-0">
+                                  <Wine className="w-4 h-4 text-purple-400" />
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-extrabold text-white">Diseño Licorera</h4>
+                                  <p className="text-[10px] text-gray-500 leading-normal mt-0.5">Interfaz moderna y atractiva para licores, cervezas, coctelería y snacks. Destaca ofertas, combos y envíos express.</p>
+                                </div>
+                              </div>
+                              {profile.layout === 'liquor' && (
                                 <Check className="w-4.5 h-4.5 text-emerald-400 shrink-0 ml-2" />
                               )}
                             </button>

@@ -97,7 +97,7 @@ export interface UserProfile {
   subscriptionTrialExpires?: string;
   subscriptionPaidUntil?: string;
   subscriptionAnchorDay?: number;
-  layout?: 'default' | 'shoes' | 'tech' | 'food';
+  layout?: 'food' | 'liquor' | 'default' | 'shoes' | 'tech';
   coverTitle?: string;
   instagram?: string;
   facebook?: string;
