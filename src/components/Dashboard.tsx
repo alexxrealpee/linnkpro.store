@@ -61,6 +61,7 @@ import {
   deleteProductItem,
   fetchProductsAllState,
   subscribeProducts,
+  deduplicateProducts,
   fetchOrders,
   saveOrder,
   deduplicateOrders,
@@ -716,9 +717,18 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
       setIsSavingProduct(true);
       const saved = await saveProduct(payload);
       if (editingProd) {
-        setProducts(prev => prev.map(p => (p.id === editingProd.id || p.id === saved.id) ? saved : p));
+        setProducts(prev => {
+          const updated = prev.map(p => (p.id === editingProd.id || p.id === saved.id) ? saved : p);
+          return deduplicateProducts(updated);
+        });
       } else {
-        setProducts(prev => [...prev, saved]);
+        setProducts(prev => {
+          const exists = prev.some(p => p.id === saved.id || (p.name.trim().toLowerCase() === saved.name.trim().toLowerCase() && p.id.startsWith('temp_')));
+          if (exists) {
+            return deduplicateProducts(prev.map(p => (p.id === saved.id || (p.name.trim().toLowerCase() === saved.name.trim().toLowerCase() && p.id.startsWith('temp_'))) ? saved : p));
+          }
+          return deduplicateProducts([...prev, saved]);
+        });
       }
       setIsAddingProd(false);
       setEditingProd(null);
@@ -1542,7 +1552,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                                 required
                                 value={prodName}
                                 onChange={(e) => setProdName(e.target.value)}
-                                placeholder="Ej: Calzado Deportivo Runner"
+                                placeholder="Ej: Hamburguesa Artesanal Doble Carne"
                                 className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-emerald-500/20"
                               />
                             </div>
@@ -1588,27 +1598,6 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                                   className="w-full h-10 bg-gray-900/90 border border-amber-500/40 focus:border-amber-400 px-3.5 mt-2 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-amber-500/20"
                                 />
                               )}
-
-                              <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                                <span className="text-[9px] font-extrabold text-gray-500 uppercase shrink-0 mr-0.5">Rápidas:</span>
-                                {RESTAURANT_CATEGORIES.map((cat) => {
-                                  const isSelected = prodCategory === cat;
-                                  return (
-                                    <button
-                                      key={cat}
-                                      type="button"
-                                      onClick={() => setProdCategory(cat)}
-                                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg shrink-0 transition border cursor-pointer ${
-                                        isSelected
-                                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
-                                          : 'bg-gray-900 text-gray-400 border-gray-800 hover:border-gray-700 hover:text-white'
-                                      }`}
-                                    >
-                                      {cat}
-                                    </button>
-                                  );
-                                })}
-                              </div>
                             </div>
                           </div>
 
@@ -1618,7 +1607,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                               rows={3}
                               value={prodDesc}
                               onChange={(e) => setProdDesc(e.target.value)}
-                              placeholder="Escribe detalles del producto, materiales, especificaciones..."
+                              placeholder="Escribe la descripción, ingredientes, acompañamientos o porción..."
                               className="w-full bg-gray-900 border border-gray-800 focus:border-emerald-500 p-3.5 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-emerald-500/20 resize-none"
                             />
                           </div>
@@ -1737,17 +1726,7 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                               <p className="text-[9px] text-gray-550 mt-1 font-semibold">Deja vacío para usar el marcador por defecto de la categoría.</p>
                             </div>
 
-                            <div>
-                              <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider block mb-1">Variantes (Separa por comas)</label>
-                              <input
-                                type="text"
-                                value={prodVariants}
-                                onChange={(e) => setProdVariants(e.target.value)}
-                                placeholder="Ej: S, M, L o Azul, Rojo, Negro"
-                                className="w-full h-11 bg-gray-900 border border-gray-800 focus:border-emerald-500 px-3.5 rounded-xl text-xs font-semibold outline-none text-white focus:ring-1 focus:ring-emerald-500/20"
-                              />
-                              <p className="text-[9px] text-gray-500 mt-1 font-semibold">Tallas, colores u opciones que el cliente podrá elegir antes de comprar.</p>
-                            </div>
+
                           </div>
 
                           <div className="flex items-center gap-2 pt-2">
@@ -1885,7 +1864,9 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                             return matchesSearch && matchesCategory && matchesStatus;
                           });
 
-                          if (filtered.length === 0) {
+                          const dedupedFiltered = deduplicateProducts(filtered);
+
+                          if (dedupedFiltered.length === 0) {
                             return (
                               <div className="bg-gray-950 border border-gray-900 rounded-3xl p-12 text-center text-gray-500">
                                 <Search className="w-12 h-12 mb-3 mx-auto opacity-30 text-emerald-400 animate-pulse" />
@@ -1907,8 +1888,8 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
                           }
 
                           return (
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-                              {filtered.map((prod) => (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {dedupedFiltered.map((prod) => (
                                 <div 
                                   key={prod.id} 
                                   style={{ opacity: prod.active ? 1 : 0.45 }}

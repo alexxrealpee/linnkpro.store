@@ -699,12 +699,14 @@ export async function fetchProductsAllState(userId: string): Promise<ProductItem
     }
   } catch (e) {}
 
+  const dedupedProducts = deduplicateProducts(products);
+
   // Update local storage cache safely
   try {
-    localStorage.setItem(`linnk_products_${userId}`, JSON.stringify(products));
+    localStorage.setItem(`linnk_products_${userId}`, JSON.stringify(dedupedProducts));
   } catch (e) {}
 
-  return products;
+  return dedupedProducts;
 }
 
 // CREATE CUSTOMER ORDER
@@ -805,6 +807,28 @@ export function deduplicateOrders(ordersList: OrderItem[]): OrderItem[] {
   });
 }
 
+// DEDUPLICATE PRODUCTS HELPER
+export function deduplicateProducts(productsList: ProductItem[]): ProductItem[] {
+  if (!productsList || !Array.isArray(productsList)) return [];
+  const seenIds = new Set<string>();
+  const seenSignatures = new Set<string>();
+  return productsList.filter(p => {
+    if (!p || !p.id) return false;
+    if (seenIds.has(p.id)) return false;
+
+    const sig = `${p.userId || ''}_${(p.name || '').trim().toLowerCase()}_${p.price || 0}`;
+    if (seenSignatures.has(sig) && p.id.startsWith('temp_')) {
+      return false;
+    }
+
+    seenIds.add(p.id);
+    if (!p.id.startsWith('temp_')) {
+      seenSignatures.add(sig);
+    }
+    return true;
+  });
+}
+
 // FETCH ALL ORDERS FOR MERCHANT
 export async function fetchOrders(userId: string): Promise<OrderItem[]> {
   try {
@@ -885,16 +909,17 @@ export function subscribeProducts(userId: string, callback: (products: ProductIt
         createdAt: data.createdAt || new Date().toISOString()
       } as ProductItem);
     });
+    const deduped = deduplicateProducts(products);
     try {
-      localStorage.setItem(`linnk_products_${userId}`, JSON.stringify(products));
+      localStorage.setItem(`linnk_products_${userId}`, JSON.stringify(deduped));
     } catch (e) {}
-    callback(products);
+    callback(deduped);
   }, (err) => {
     console.error("Error subscribing to products:", err);
     try {
       const cached = localStorage.getItem(`linnk_products_${userId}`);
       if (cached) {
-        callback(JSON.parse(cached));
+        callback(deduplicateProducts(JSON.parse(cached)));
       }
     } catch (e) {}
   });
