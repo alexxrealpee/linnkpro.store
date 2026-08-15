@@ -148,6 +148,27 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
     }
   }, [cart]);
 
+  // Sync cart when modified externally (e.g. by LinnkPro AI Voice Assistant)
+  useEffect(() => {
+    const handleSync = () => {
+      try {
+        const stored = localStorage.getItem('linnkpro_general_cart');
+        if (stored) {
+          setCart(JSON.parse(stored));
+        } else {
+          setCart([]);
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('linnkpro_cart_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('linnkpro_cart_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 

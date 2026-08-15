@@ -20,6 +20,7 @@ import DriverPortal from './components/DriverPortal';
 import CarruselProduc from './components/CarruselProduc';
 import PwaLoadingScreen from './components/PwaLoadingScreen';
 import PwaInstallModal from './components/PwaInstallModal';
+import LinnkProVoiceAssistant from './components/LinnkProVoiceAssistant';
 import { DriverProfile } from './types';
 
 // Helper function defined outside or hoisted for initial state computation
@@ -325,6 +326,21 @@ export default function App() {
           }}
         />
       )}
+
+      {/* LinnkPro AI Voice Assistant (Floating Button & Voice Shopping Modal) */}
+      <LinnkProVoiceAssistant 
+        activeUsername={targetUsername}
+        onNavigateToStore={(storeUsername) => {
+          window.history.pushState({}, '', '/' + storeUsername);
+          setTargetUsername(storeUsername);
+          setView('profile');
+        }}
+        onNavigateToTienda={() => {
+          window.history.pushState({}, '', '/tienda');
+          setTargetUsername(null);
+          setView('tienda');
+        }}
+      />
 
       {/* Progressive Web App (PWA) Installation Bottom Sheet Modal */}
       <PwaInstallModal />
