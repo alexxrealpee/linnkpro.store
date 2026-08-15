@@ -8,7 +8,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
 import dotenv from 'dotenv';
-import { processVoiceAssistantMessage } from './server/voiceAssistant';
+import { processVoiceAssistantMessage, processFallbackVoiceAssistantMessage } from './server/voiceAssistant';
 
 // Load environmental variables
 dotenv.config();
@@ -224,28 +224,46 @@ Formatos válidos para:
 
   // API Route: LinnkPro AI Voice Assistant
   app.post('/api/gemini/voice-assistant', async (req, res) => {
+    const { message, history, catalogContext } = req.body;
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      res.status(400).json({ error: "El mensaje de voz o texto no puede estar vacío." });
+      return;
+    }
+
+    const safeContext = catalogContext || { products: [], stores: [], deliveryFee: 4000, cart: [] };
+
     try {
-      const { message, history, catalogContext } = req.body;
-      if (!message || typeof message !== 'string' || !message.trim()) {
-        res.status(400).json({ error: "El mensaje de voz o texto no puede estar vacío." });
-        return;
+      let ai: GoogleGenAI | null = null;
+      try {
+        ai = getGeminiClient();
+      } catch (e) {
+        console.warn("Gemini client initialization skipped or missing API key, using smart local assistant fallback.");
       }
 
-      const ai = getGeminiClient();
-      const result = await processVoiceAssistantMessage(
-        ai,
+      if (ai) {
+        const result = await processVoiceAssistantMessage(
+          ai,
+          message.trim(),
+          history || [],
+          safeContext
+        );
+        res.json(result);
+      } else {
+        const fallbackResult = processFallbackVoiceAssistantMessage(
+          message.trim(),
+          history || [],
+          safeContext
+        );
+        res.json(fallbackResult);
+      }
+    } catch (error: any) {
+      console.error("Error in LinnkPro AI Voice Assistant endpoint, serving fallback response:", error);
+      const fallbackResult = processFallbackVoiceAssistantMessage(
         message.trim(),
         history || [],
-        catalogContext || { products: [], stores: [], deliveryFee: 4000, cart: [] }
+        safeContext
       );
-
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error in LinnkPro AI Voice Assistant endpoint:", error);
-      res.status(500).json({
-        error: error.message || "Error al procesar la solicitud con LinnkPro AI.",
-        details: error.toString()
-      });
+      res.json(fallbackResult);
     }
   });
 
@@ -259,7 +277,17 @@ Formatos válidos para:
       }
 
       const ai = getGeminiClient();
-      const cleanText = text.replace(/[*_#`~]/g, '').trim().substring(0, 500);
+      // Format prices to pesos so TTS never speaks 'dólares'
+      const cleanText = text
+        .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+        .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+        .replace(/\$/g, '')
+        .replace(/\bd[oó]lares\b/gi, 'pesos')
+        .replace(/\bd[oó]lar\b/gi, 'peso')
+        .replace(/[*_#`~]/g, '')
+        .replace(/https?:\/\/\S+/g, '')
+        .trim()
+        .substring(0, 500);
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-tts-preview',

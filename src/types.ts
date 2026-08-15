@@ -98,6 +98,9 @@ export interface UserProfile {
   subscriptionPaidUntil?: string;
   subscriptionAnchorDay?: number;
   layout?: 'food' | 'liquor' | 'default' | 'shoes' | 'tech';
+  category?: string;
+  rating?: number;
+  ratingCount?: number;
   coverTitle?: string;
   instagram?: string;
   facebook?: string;

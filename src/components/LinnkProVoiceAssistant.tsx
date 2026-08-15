@@ -36,7 +36,13 @@ import {
   Check
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
-import { fetchAllActiveProductsAndStores, fetchSystemSettings, saveOrder } from '../lib/firebase';
+import { 
+  fetchAllActiveProductsAndStores, 
+  fetchSystemSettings, 
+  saveOrder, 
+  DEFAULT_PLATFORM_PRODUCTS, 
+  DEFAULT_PLATFORM_STORES 
+} from '../lib/firebase';
 import { 
   getStoredCart, 
   addProductToCart, 
@@ -96,9 +102,9 @@ export default function LinnkProVoiceAssistant({
     }
   ]);
 
-  // Catalog and system data cache
-  const [catalogProducts, setCatalogProducts] = useState<ProductItem[]>([]);
-  const [catalogStores, setCatalogStores] = useState<Record<string, UserProfile>>({});
+  // Catalog and system data cache with instant preloaded defaults
+  const [catalogProducts, setCatalogProducts] = useState<ProductItem[]>(DEFAULT_PLATFORM_PRODUCTS);
+  const [catalogStores, setCatalogStores] = useState<Record<string, UserProfile>>(DEFAULT_PLATFORM_STORES);
   const [systemDeliveryFee, setSystemDeliveryFee] = useState<number>(4000);
   const [cart, setCart] = useState<GeneralCartItem[]>(getStoredCart());
   const [isOrdering, setIsOrdering] = useState(false);
@@ -135,6 +141,13 @@ export default function LinnkProVoiceAssistant({
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
+
+  // Automatically end voice call when user switches to chat mode
+  useEffect(() => {
+    if (activeTab === 'chat' && isInVoiceCallRef.current) {
+      endVoiceCall();
+    }
+  }, [activeTab]);
 
   // 1. Sync Cart across events
   useEffect(() => {
@@ -501,7 +514,15 @@ export default function LinnkProVoiceAssistant({
 
     // Fallback: Web Speech API synthesis (Female Voice strictly)
     if ('speechSynthesis' in window) {
-      const cleanSpeech = text.replace(/[*_#`~]/g, '').replace(/https?:\/\/\S+/g, '').trim();
+      const cleanSpeech = text
+        .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+        .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+        .replace(/\$/g, '')
+        .replace(/\bd[oó]lares\b/gi, 'pesos')
+        .replace(/\bd[oó]lar\b/gi, 'peso')
+        .replace(/[*_#`~]/g, '')
+        .replace(/https?:\/\/\S+/g, '')
+        .trim();
       const utterance = new SpeechSynthesisUtterance(cleanSpeech);
       utterance.lang = 'es-CO';
       utterance.rate = 1.05;
@@ -554,6 +575,148 @@ export default function LinnkProVoiceAssistant({
     } else {
       onSpeechComplete();
     }
+  };
+
+  // Fallback client-side matching engine when backend API or network connection is interrupted
+  const computeClientLocalVoiceResponse = (
+    userText: string,
+    products: ProductItem[],
+    stores: Record<string, UserProfile>,
+    currentCart: GeneralCartItem[],
+    deliveryFee: number
+  ) => {
+    const lower = userText.toLowerCase().trim();
+    const executedActions: any[] = [];
+    let responseText = '';
+
+    const activeProducts = products.filter(p => p.active !== false);
+
+    // 1. Check cart request
+    if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
+      const totalAmount = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+      const itemCount = currentCart.reduce((sum, item) => sum + item.quantity, 0);
+      executedActions.push({
+        type: 'CART_SUMMARY',
+        cart: currentCart,
+        totalAmount,
+        itemCount
+      });
+
+      if (currentCart.length === 0) {
+        responseText = 'Tu carrito de compras está vacío actualmente. Puedes pedirme pollo asado, hamburguesas, pizzas o consultar nuestros menús.';
+      } else {
+        const itemsList = currentCart.map(i => `${i.quantity}x ${i.product.name}`).join(', ');
+        responseText = `Tienes ${itemCount} plato(s) en tu carrito: ${itemsList}. Subtotal: ${totalAmount.toLocaleString('es-CO')} pesos. ¿Deseas confirmar tu pedido?`;
+      }
+    }
+    // 2. Add to cart request
+    else if (lower.includes('quiero') || lower.includes('agrega') || lower.includes('pedir') || lower.includes('ordenar') || lower.includes('añade') || lower.includes('dame')) {
+      let qty = 1;
+      const matchNum = lower.match(/\b(\d+)\b/);
+      if (matchNum) {
+        qty = parseInt(matchNum[1], 10);
+      } else if (lower.includes('dos') || lower.includes('2')) {
+        qty = 2;
+      } else if (lower.includes('tres') || lower.includes('3')) {
+        qty = 3;
+      }
+
+      const candidate = activeProducts.find(p => {
+        const pName = (p.name || '').toLowerCase();
+        const pWords = pName.split(/\s+/);
+        return pWords.some(w => w.length > 3 && lower.includes(w)) || lower.includes(pName);
+      });
+
+      if (candidate) {
+        executedActions.push({
+          type: 'ADD_TO_CART',
+          product: candidate,
+          quantity: qty
+        });
+        responseText = `¡Listo! He agregado ${qty} ${candidate.name} a tu carrito por ${(candidate.price * qty).toLocaleString('es-CO')} pesos. ¿Deseas algo más o confirmamos tu pedido?`;
+      } else {
+        const searchMatches = activeProducts.filter(p => {
+          const pName = (p.name || '').toLowerCase();
+          const pCat = (p.category || '').toLowerCase();
+          return lower.includes(pName) || (pCat && lower.includes(pCat)) || pName.split(/\s+/).some(w => w.length > 3 && lower.includes(w));
+        });
+        const topItems = (searchMatches.length > 0 ? searchMatches : activeProducts).slice(0, 3);
+        responseText = `Tenemos opciones como: ${topItems.map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ')}. ¿Cuál deseas agregar?`;
+      }
+    }
+    // 3. Search / Menu queries
+    else if (
+      lower.includes('pizza') || lower.includes('hamburguesa') || lower.includes('pollo') || 
+      lower.includes('pechuga') || lower.includes('alita') || lower.includes('broaster') || 
+      lower.includes('asado') || lower.includes('salchipapa') || lower.includes('perro') || 
+      lower.includes('bebida') || lower.includes('menu') || lower.includes('menú') || 
+      lower.includes('platos') || lower.includes('restaurantes') || lower.includes('comida') || lower.includes('comer')
+    ) {
+      const rawTokens = lower.split(/\s+/).map(t => t.replace(/[^a-záéíóúüñ0-9]/gi, '')).filter(t => t.length >= 3);
+      const searchMatches = activeProducts.filter(p => {
+        const pName = (p.name || '').toLowerCase();
+        const pCat = (p.category || '').toLowerCase();
+        const pDesc = (p.description || '').toLowerCase();
+
+        if (lower.includes('pollo') || lower.includes('pollos')) {
+          if (pName.includes('pollo') || pCat.includes('pollo') || pDesc.includes('pollo') || pName.includes('pechuga') || pName.includes('alitas') || pName.includes('broaster')) return true;
+        }
+        if (lower.includes('hamburguesa') || lower.includes('burger')) {
+          if (pName.includes('hamburguesa') || pCat.includes('hamburguesa') || pName.includes('burger') || pDesc.includes('angus')) return true;
+        }
+        if (lower.includes('pizza')) {
+          if (pName.includes('pizza') || pCat.includes('pizza')) return true;
+        }
+        return rawTokens.some(tok => {
+          const singular = tok.endsWith('s') ? tok.slice(0, -1) : tok;
+          return pName.includes(tok) || pName.includes(singular) || pCat.includes(tok) || pDesc.includes(tok);
+        }) || lower.includes(pName);
+      });
+
+      const finalResults = searchMatches.length > 0 ? searchMatches : activeProducts;
+      executedActions.push({
+        type: 'PRODUCTS_SEARCHED',
+        query: userText,
+        results: finalResults.slice(0, 8),
+        stores: Object.values(stores).slice(0, 4)
+      });
+
+      const topItems = finalResults.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${stores[p.userId]?.displayName || 'el restaurante'}`).join(', ');
+      responseText = `Encontré estas opciones deliciosas: ${topItems}. ¿Te gustaría que agregue alguna a tu carrito?`;
+    }
+    // 4. Confirm order request
+    else if (lower.includes('confirm') || lower.includes('hacer pedido') || lower.includes('enviar pedido') || lower.includes('finalizar')) {
+      if (currentCart.length === 0) {
+        responseText = 'Tu carrito está vacío. Agrega primero los platos que deseas ordenar.';
+      } else {
+        const subtotal = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+        const grandTotal = subtotal + deliveryFee;
+        executedActions.push({
+          type: 'ORDER_CONFIRMATION_REQUESTED',
+          orderProposal: {
+            itemsCount: currentCart.length,
+            subtotal,
+            deliveryFee,
+            grandTotal,
+            customerName: 'Cliente',
+            customerPhone: '',
+            customerAddress: 'Dirección de entrega',
+            paymentMethod: 'delivery_cash'
+          }
+        });
+        responseText = `El total de tu pedido es ${grandTotal.toLocaleString('es-CO')} pesos con domicilio incluido. Por favor confirma tus datos de entrega en pantalla para enviarlo.`;
+      }
+    }
+    // 5. Default greeting & assistance
+    else {
+      const sample = activeProducts.slice(0, 3).map(p => `${p.name} (${p.price.toLocaleString('es-CO')} pesos)`).join(', ');
+      responseText = `¡Hola! Soy tu asistente LinnkPro. Puedes pedir platos como ${sample}, o consultar restaurantes. ¿Qué te gustaría ordenar hoy?`;
+    }
+
+    return {
+      text: responseText,
+      actions: executedActions
+    };
   };
 
   // 10. Handle Send Message to Gemini Voice Assistant
@@ -626,27 +789,43 @@ export default function LinnkProVoiceAssistant({
         parts: [{ text: m.text }]
       }));
 
-      // Call backend voice assistant endpoint
-      const response = await fetch('/api/gemini/voice-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: textToSend.trim(),
-          history: historyPayload,
-          catalogContext: {
-            products: productsArray,
-            stores: storesArray,
-            deliveryFee: systemDeliveryFee,
-            cart: cartPayload
-          }
-        })
-      });
+      let result: any = null;
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      try {
+        // Call backend voice assistant endpoint
+        const response = await fetch('/api/gemini/voice-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: textToSend.trim(),
+            history: historyPayload,
+            catalogContext: {
+              products: productsArray,
+              stores: storesArray,
+              deliveryFee: systemDeliveryFee,
+              cart: cartPayload
+            }
+          })
+        });
+
+        if (response.ok) {
+          result = await response.json();
+        }
+      } catch (fetchErr) {
+        console.warn("Backend fetch failed, activating resilient local client engine:", fetchErr);
       }
 
-      const result = await response.json();
+      // If backend failed or was unreachable on custom domain, calculate locally
+      if (!result || !result.text) {
+        result = computeClientLocalVoiceResponse(
+          textToSend.trim(),
+          catalogProducts,
+          catalogStores,
+          currentCart,
+          systemDeliveryFee
+        );
+      }
+
       const aiReplyText = result.text || 'Entendido. ¿Deseas hacer algo más?';
       const actions = result.actions || [];
 
@@ -710,7 +889,7 @@ export default function LinnkProVoiceAssistant({
 
       setMessages(prev => [...prev, assistantMsg]);
 
-      // Request Gemini TTS audio from backend
+      // Request Gemini TTS audio or fallback to Web Speech API
       if (!isVoiceMuted) {
         try {
           const ttsRes = await fetch('/api/gemini/tts', {
@@ -718,9 +897,13 @@ export default function LinnkProVoiceAssistant({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: result.speechText || aiReplyText })
           });
-          const ttsData = await ttsRes.json();
-          if (ttsData && ttsData.audio) {
-            playVoiceResponse(aiReplyText, ttsData.audio);
+          if (ttsRes.ok) {
+            const ttsData = await ttsRes.json();
+            if (ttsData && ttsData.audio) {
+              playVoiceResponse(aiReplyText, ttsData.audio);
+            } else {
+              playVoiceResponse(aiReplyText);
+            }
           } else {
             playVoiceResponse(aiReplyText);
           }
@@ -735,19 +918,22 @@ export default function LinnkProVoiceAssistant({
         }
       }
     } catch (error) {
-      console.error("Error communicating with LinnkPro AI:", error);
-      const errorMsg: ChatMessage = {
-        id: `err_${Date.now()}`,
+      console.error("Critical fallback in LinnkPro AI:", error);
+      const fallback = computeClientLocalVoiceResponse(
+        textToSend.trim(),
+        catalogProducts,
+        catalogStores,
+        getStoredCart(),
+        systemDeliveryFee
+      );
+      const assistantMsg: ChatMessage = {
+        id: `ai_${Date.now()}`,
         sender: 'assistant',
-        text: 'Disculpa, tuve un inconveniente de conexión. Puedes volver a hablar cuando gustes.',
+        text: fallback.text,
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, errorMsg]);
-      if (isInVoiceCallRef.current) {
-        setAssistantState('listening');
-      } else {
-        setAssistantState('idle');
-      }
+      setMessages(prev => [...prev, assistantMsg]);
+      playVoiceResponse(fallback.text);
     }
   };
 
@@ -927,7 +1113,12 @@ export default function LinnkProVoiceAssistant({
                   {/* View Mode Switcher (Call vs Chat) */}
                   <div className="bg-[#111827] p-0.5 rounded-xl border border-[#232B3A] flex items-center">
                     <button
-                      onClick={() => setActiveTab('call')}
+                      onClick={() => {
+                        setActiveTab('call');
+                        if (!isInVoiceCallRef.current) {
+                          startVoiceCall();
+                        }
+                      }}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
                         activeTab === 'call' 
                           ? 'bg-[#E63946] text-white shadow-md' 
@@ -938,7 +1129,10 @@ export default function LinnkProVoiceAssistant({
                       Voz
                     </button>
                     <button
-                      onClick={() => setActiveTab('chat')}
+                      onClick={() => {
+                        endVoiceCall();
+                        setActiveTab('chat');
+                      }}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
                         activeTab === 'chat' 
                           ? 'bg-[#E63946] text-white shadow-md' 
@@ -1142,7 +1336,10 @@ export default function LinnkProVoiceAssistant({
                             </div>
                           </div>
                           <button
-                            onClick={() => setActiveTab('chat')}
+                            onClick={() => {
+                              endVoiceCall();
+                              setActiveTab('chat');
+                            }}
                             className="px-3 py-1.5 rounded-xl bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold transition flex items-center gap-1 shadow-md"
                           >
                             Ver Carrito <ArrowRight className="w-3 h-3" />

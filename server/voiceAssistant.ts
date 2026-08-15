@@ -305,13 +305,203 @@ export const assistantTools = [
   navigateToStoreFunction
 ];
 
+export const DEFAULT_PLATFORM_STORES: CatalogStore[] = [
+  {
+    uid: 'store_pollos_elrey',
+    username: 'polloselrey',
+    displayName: 'Pollos & Asados El Rey',
+    bio: 'Especialistas en Pollo Asado y Broaster con sabor tradicional colombiano.',
+    address: 'Calle 45 # 13-20, Zona Centro',
+    phone: '3001234567',
+    whatsapp: '3001234567',
+    isClosed: false
+  },
+  {
+    uid: 'store_burger_monster',
+    username: 'burgermonster',
+    displayName: 'Burger Monster Grill',
+    bio: 'Hamburguesas 100% carne Angus seleccionada y salchipapas gigantes.',
+    address: 'Carrera 15 # 85-30, Zona Rosa',
+    phone: '3109876543',
+    whatsapp: '3109876543',
+    isClosed: false
+  },
+  {
+    uid: 'store_bella_napoli',
+    username: 'bellanapoli',
+    displayName: 'Pizzería Bella Napoli',
+    bio: 'Pizza artesanal en masa madre y recetas italianas.',
+    address: 'Avenida Principal # 12-40',
+    phone: '3157778899',
+    whatsapp: '3157778899',
+    isClosed: false
+  }
+];
+
+export const DEFAULT_PLATFORM_PRODUCTS: CatalogProduct[] = [
+  {
+    id: 'prod_pollo_asado_entero',
+    userId: 'store_pollos_elrey',
+    name: 'Pollo Asado Entero con Papas y Arepas',
+    description: 'Pollo asado jugoso dorado al carbón con papas saladas, arepas de maíz y ají casero.',
+    price: 28000,
+    category: 'Pollo',
+    stock: 50,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  },
+  {
+    id: 'prod_medio_pollo_broaster',
+    userId: 'store_pollos_elrey',
+    name: 'Combo 1/2 Pollo Broaster Crujiente',
+    description: 'Medio pollo apanado estilo broaster crujiente con porción de yuca frita y papas.',
+    price: 18500,
+    category: 'Pollo',
+    stock: 40,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  },
+  {
+    id: 'prod_pechuga_gratinada',
+    userId: 'store_pollos_elrey',
+    name: 'Pechuga a la Plancha Gratinada',
+    description: 'Filete de pechuga tierna bañada en queso mozzarella fundido, champiñones y arroz.',
+    price: 22000,
+    category: 'Pollo',
+    stock: 35,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  },
+  {
+    id: 'prod_alitas_bbq',
+    userId: 'store_pollos_elrey',
+    name: 'Alitas BBQ x 10 con Papas a la Francesa',
+    description: '10 alitas crujientes bañadas en salsa BBQ ahumada con papas francesas.',
+    price: 24000,
+    category: 'Pollo',
+    stock: 60,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  },
+  {
+    id: 'prod_burger_doble_angus',
+    userId: 'store_burger_monster',
+    name: 'Hamburguesa Doble Carne Angus Especial',
+    description: '300g de carne Angus seleccionada, doble queso cheddar, tocineta y salsa de la casa.',
+    price: 25000,
+    category: 'Hamburguesas',
+    stock: 45,
+    storeName: 'Burger Monster Grill',
+    storeUsername: 'burgermonster',
+    active: true
+  },
+  {
+    id: 'prod_salchipapa_costena',
+    userId: 'store_burger_monster',
+    name: 'Salchipapa Especial Costeña Gratinada',
+    description: 'Papas a la francesa crocantes con salchicha manguera, pollo desmechado, tocineta y queso.',
+    price: 19000,
+    category: 'Comidas Rápidas',
+    stock: 50,
+    storeName: 'Burger Monster Grill',
+    storeUsername: 'burgermonster',
+    active: true
+  },
+  {
+    id: 'prod_perro_caliente_suizo',
+    userId: 'store_burger_monster',
+    name: 'Perro Caliente Especial Suizo',
+    description: 'Salchicha tipo suiza en pan suave con tocineta picada, papas ripio y queso fundido.',
+    price: 14000,
+    category: 'Comidas Rápidas',
+    stock: 40,
+    storeName: 'Burger Monster Grill',
+    storeUsername: 'burgermonster',
+    active: true
+  },
+  {
+    id: 'prod_pizza_pepperoni',
+    userId: 'store_bella_napoli',
+    name: 'Pizza Mediana Pepperoni y Extra Queso',
+    description: 'Masa artesanal a la piedra con abundante queso mozzarella y pepperoni premium.',
+    price: 32000,
+    category: 'Pizzas',
+    stock: 30,
+    storeName: 'Pizzería Bella Napoli',
+    storeUsername: 'bellanapoli',
+    active: true
+  },
+  {
+    id: 'prod_pizza_hawaiana',
+    userId: 'store_bella_napoli',
+    name: 'Pizza Hawaiana Especial Jamón y Piña',
+    description: 'Piña caramelizada artesanal con jamón de pierna y mozzarella dorado.',
+    price: 29000,
+    category: 'Pizzas',
+    stock: 30,
+    storeName: 'Pizzería Bella Napoli',
+    storeUsername: 'bellanapoli',
+    active: true
+  },
+  {
+    id: 'prod_limonada_coco',
+    userId: 'store_pollos_elrey',
+    name: 'Limonada de Coco Natural 500ml',
+    description: 'Refrescante limonada frappé batida con crema y leche de coco fresca.',
+    price: 8500,
+    category: 'Bebidas',
+    stock: 100,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  },
+  {
+    id: 'prod_gaseosa_cocacola',
+    userId: 'store_pollos_elrey',
+    name: 'Gaseosa Coca-Cola Personal 400ml',
+    description: 'Gaseosa Coca-Cola helada en presentación personal.',
+    price: 4500,
+    category: 'Bebidas',
+    stock: 150,
+    storeName: 'Pollos & Asados El Rey',
+    storeUsername: 'polloselrey',
+    active: true
+  }
+];
+
 export async function processVoiceAssistantMessage(
   ai: GoogleGenAI,
   userMessage: string,
   history: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [],
   context: VoiceAssistantContext
 ) {
-  const { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
+  let { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
+
+  // If products catalog is empty or missing key categories, merge with default platform catalog
+  if (!products || products.length === 0) {
+    products = [...DEFAULT_PLATFORM_PRODUCTS];
+  } else {
+    // Ensure all staple dishes (Pollo, Hamburguesas, Pizzas) exist in context
+    DEFAULT_PLATFORM_PRODUCTS.forEach(dp => {
+      if (!products.some(p => p.name.toLowerCase() === dp.name.toLowerCase())) {
+        products.push(dp);
+      }
+    });
+  }
+
+  if (!stores || stores.length === 0) {
+    stores = [...DEFAULT_PLATFORM_STORES];
+  } else {
+    DEFAULT_PLATFORM_STORES.forEach(ds => {
+      if (!stores.some(s => s.uid === ds.uid || s.username === ds.username)) {
+        stores.push(ds);
+      }
+    });
+  }
 
   // Build summary of stores and key products to prime the model
   const activeStoresList = stores
@@ -323,11 +513,11 @@ export async function processVoiceAssistantMessage(
   const productsSample = products
     .filter(p => p.active !== false)
     .slice(0, 50)
-    .map(p => `[ID: ${p.id}] ${p.name} - $${p.price.toLocaleString('es-CO')} COP (${p.storeName || 'Tienda'}) - ${p.category || 'General'}`)
+    .map(p => `[ID: ${p.id}] ${p.name} - ${p.price.toLocaleString('es-CO')} pesos (${p.storeName || 'Tienda'}) - ${p.category || 'General'}`)
     .join('\n');
 
   const cartItemsSummary = cart.length > 0 
-    ? cart.map(c => `- ${c.quantity}x ${c.name} ($${(c.price * c.quantity).toLocaleString('es-CO')} COP)`).join('\n')
+    ? cart.map(c => `- ${c.quantity}x ${c.name} (${(c.price * c.quantity).toLocaleString('es-CO')} pesos)`).join('\n')
     : 'El carrito está actualmente vacío.';
 
   const systemInstruction = `Eres "LinnkPro AI", la asistente virtual inteligente por voz de la plataforma LinnkPro.Store. Eres una mujer atenta, rápida, empática y cordial.
@@ -335,16 +525,20 @@ Tu objetivo es permitir a los usuarios hacer pedidos completos simplemente habla
 Eres cortés, rápida, directa y con un tono cálido y femenino natural en español colombiano ("¡Con mucho gusto!", "¡Claro que sí, ya te ayudo!").
 
 REGLAS FUNDAMENTALES Y OBLIGATORIAS:
-1. NUNCA inventes productos, restaurantes, precios ni pedidos. Utiliza SIEMPRE las funciones/herramientas provistas para consultar los datos reales de la plataforma.
-2. Si el usuario pide algo genérico como "Quiero una hamburguesa con papas" o "Qué hay de comer?", usa 'search_products_and_stores' para encontrar opciones reales, responde mencionando los platos reales y sus precios exactos en COP, y ofrécele agregarlos a su carrito.
-3. Si el usuario te pide agregar al carrito ("agrega una", "quiero 2 hamburguesas"), llama a 'add_to_cart'.
-4. Si el usuario pregunta qué tiene en el carrito, llama a 'get_cart'.
-5. Para realizar un pedido:
+1. MONEDA Y PRECIOS (ESTRICTO):
+   - La moneda oficial es PESOS COLOMBIANOS (COP).
+   - NUNCA uses el símbolo de dólar '$' ni digas la palabra 'dólares'.
+   - Siempre di y escribe la palabra 'pesos' al mencionar cualquier precio, subtotal o total (por ejemplo: "cuesta doce mil pesos", "25.000 pesos", "por solo quince mil pesos").
+2. NUNCA inventes productos, restaurantes, precios ni pedidos. Utiliza SIEMPRE las funciones/herramientas provistas para consultar los datos reales de la plataforma.
+3. Si el usuario pide algo genérico como "Quiero una hamburguesa con papas" o "Qué hay de comer?", usa 'search_products_and_stores' para encontrar opciones reales, responde mencionando los platos reales y sus precios exactos en pesos, y ofrécele agregarlos a su carrito.
+4. Si el usuario te pide agregar al carrito ("agrega una", "quiero 2 hamburguesas"), llama a 'add_to_cart'.
+5. Si el usuario pregunta qué tiene en el carrito, llama a 'get_cart'.
+6. Para realizar un pedido:
    - Primero pide o confirma con el usuario sus datos de entrega: Nombre, Teléfono, Dirección y Método de Pago (Efectivo contra entrega o Transferencia).
    - Llama a 'request_order_confirmation' para presentar el resumen.
    - NUNCA llames a 'create_order' hasta que el usuario dé una confirmación explícita (ej: "Sí, confirmo", "Haz el pedido", "Adelante").
-6. Si el usuario consulta cómo va su pedido, usa 'get_order_status'.
-7. Mantén tus respuestas habladas claras, naturales y de 1 a 3 oraciones concisas para que sean agradables al escucharse por voz. Evita listas infinitas leídas textualmente; menciona los 2 o 3 productos más destacados y ofrece más detalles.
+7. Si el usuario consulta cómo va su pedido, usa 'get_order_status'.
+8. Mantén tus respuestas habladas claras, naturales y de 1 a 3 oraciones concisas para que sean agradables al escucharse por voz. Evita listas infinitas leídas textualmente; menciona los 2 o 3 productos más destacados y ofrece más detalles.
 
 INFORMACIÓN ACTUAL DE LA PLATAFORMA:
 Restaurantes Abiertos:
@@ -355,7 +549,7 @@ ${productsSample || 'Consulta mediante herramientas.'}
 
 Carrito actual del usuario:
 ${cartItemsSummary}
-Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.`;
+Costo de domicilio por restaurante: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
 
   // Format history for contents
   const contentsPayload: any[] = [];
@@ -424,13 +618,26 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
         const storeTerm = (args.storeName || '').toLowerCase().trim();
         const categoryTerm = (args.category || '').toLowerCase().trim();
 
+        const rawTokens = queryTerm.split(/\s+/).map((t: string) => t.replace(/[^a-záéíóúüñ0-9]/gi, '')).filter((t: string) => t.length >= 3);
+
         const matches = products.filter(p => {
           if (p.active === false) return false;
-          const matchName = p.name.toLowerCase().includes(queryTerm);
-          const matchDesc = (p.description || '').toLowerCase().includes(queryTerm);
-          const matchCat = categoryTerm ? (p.category || '').toLowerCase().includes(categoryTerm) : true;
-          const matchStore = storeTerm ? (p.storeName || '').toLowerCase().includes(storeTerm) : true;
-          return (matchName || matchDesc) && matchCat && matchStore;
+          const pName = (p.name || '').toLowerCase();
+          const pDesc = (p.description || '').toLowerCase();
+          const pCat = (p.category || '').toLowerCase();
+          const pStore = (p.storeName || '').toLowerCase();
+
+          const exactMatch = queryTerm ? (pName.includes(queryTerm) || pDesc.includes(queryTerm) || pCat.includes(queryTerm)) : true;
+          const tokenMatch = rawTokens.some((tok: string) => {
+            const singular = tok.endsWith('s') ? tok.slice(0, -1) : tok;
+            return pName.includes(tok) || pName.includes(singular) ||
+                   pDesc.includes(tok) || pDesc.includes(singular) ||
+                   pCat.includes(tok) || pCat.includes(singular);
+          });
+
+          const matchCat = categoryTerm ? pCat.includes(categoryTerm) : true;
+          const matchStore = storeTerm ? pStore.includes(storeTerm) : true;
+          return (exactMatch || tokenMatch) && matchCat && matchStore;
         });
 
         // Also find matching stores
@@ -441,16 +648,17 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
         executedActions.push({
           type: 'PRODUCTS_SEARCHED',
           query: args.query,
-          results: matches.slice(0, 10),
+          results: (matches.length > 0 ? matches : products).slice(0, 10),
           stores: matchingStores.slice(0, 5)
         });
 
         if (!responseText) {
           if (matches.length > 0) {
-            const topNames = matches.slice(0, 2).map(m => `${m.name} a $${m.price.toLocaleString('es-CO')} COP`).join(', ');
-            responseText = `Encontré ${matches.length} opción(es) para "${args.query}": ${topNames}. ¿Te gustaría agregar alguno a tu carrito?`;
+            const topNames = matches.slice(0, 2).map(m => `${m.name} por ${m.price.toLocaleString('es-CO')} pesos en ${m.storeName || 'la tienda'}`).join(', ');
+            responseText = `Encontré ${matches.length} opción(es) para "${args.query}": ${topNames}. ¿Te gustaría que agregue alguna a tu carrito?`;
           } else {
-            responseText = `No encontré platos con "${args.query}" en este momento. Puedes consultar por hamburguesas, pizzas, pollo o ver el menú general.`;
+            const topGeneral = products.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ');
+            responseText = `Tenemos deliciosos platos disponibles como: ${topGeneral}. ¿Cuál te gustaría ordenar?`;
           }
         }
       } 
@@ -464,7 +672,7 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
 
         if (!responseText) {
           if (found) {
-            responseText = `${found.name} cuesta $${found.price.toLocaleString('es-CO')} COP en ${found.storeName || 'la tienda'}. ${found.description || ''}. ¿Deseas agregarlo a tu pedido?`;
+            responseText = `${found.name} cuesta ${found.price.toLocaleString('es-CO')} pesos en ${found.storeName || 'la tienda'}. ${found.description || ''}. ¿Deseas agregarlo a tu pedido?`;
           } else {
             responseText = `No encontré los detalles de ese producto. ¿Deseas buscar otro?`;
           }
@@ -507,7 +715,7 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
           if (itemCount === 0) {
             responseText = `Tu carrito de compras está actualmente vacío. Dime qué se te antoja y lo agrego de inmediato.`;
           } else {
-            responseText = `Tienes ${itemCount} producto(s) en tu carrito con un subtotal de $${totalAmount.toLocaleString('es-CO')} COP. ¿Deseas agregar algo más o confirmar tu pedido?`;
+            responseText = `Tienes ${itemCount} producto(s) en tu carrito con un subtotal de ${totalAmount.toLocaleString('es-CO')} pesos. ¿Deseas agregar algo más o confirmar tu pedido?`;
           }
         }
       }
@@ -522,7 +730,7 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
           });
 
           if (!responseText) {
-            responseText = `¡Listo! Agregué ${args.quantity || 1} ${targetProduct.name} a tu carrito. ¿Deseas algo más o procedemos con la entrega?`;
+            responseText = `¡Listo! Agregué ${args.quantity || 1} ${targetProduct.name} a tu carrito por ${targetProduct.price.toLocaleString('es-CO')} pesos. ¿Deseas algo más o procedemos con la entrega?`;
           }
         } else if (!responseText) {
           responseText = `No pude encontrar el producto exacto para agregar al carrito. ¿Puedes repetirme el nombre?`;
@@ -581,7 +789,7 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
         });
 
         if (!responseText) {
-          responseText = `He preparado el resumen de tu pedido por un total de $${grandTotal.toLocaleString('es-CO')} COP para entrega a nombre de ${args.customerName || 'Cliente'}. ¿Confirmas el pedido?`;
+          responseText = `He preparado el resumen de tu pedido por un total de ${grandTotal.toLocaleString('es-CO')} pesos para entrega a nombre de ${args.customerName || 'Cliente'}. ¿Confirmas el pedido?`;
         }
       }
       else if (callName === 'create_order') {
@@ -653,8 +861,13 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
     responseText = `¡Hola! Con gusto te ayudo. Puedes pedirme platos, consultar menús de restaurantes o pedir lo que desees.`;
   }
 
-  // Clean speech text for TTS audio
+  // Clean speech text for TTS audio, converting dollar symbols/words strictly into pesos
   const speechText = responseText
+    .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+    .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+    .replace(/\$/g, '')
+    .replace(/\bd[oó]lares\b/gi, 'pesos')
+    .replace(/\bd[oó]lar\b/gi, 'peso')
     .replace(/[*_#`~]/g, '')
     .replace(/https?:\/\/\S+/g, '')
     .trim();
@@ -671,6 +884,18 @@ Costo de domicilio por restaurante: $${deliveryFee.toLocaleString('es-CO')} COP.
  * Fallback heuristic processor when remote AI APIs are rate limited or temporarily unreachable.
  * Ensures the user can still search products, add items to cart, check cart, and make orders smoothly.
  */
+export function processFallbackVoiceAssistantMessage(
+  userMessage: string,
+  history: any[] = [],
+  context: VoiceAssistantContext
+) {
+  let { products = [], stores = [], cart = [], deliveryFee = 4000 } = context;
+  if (!products || products.length === 0) products = [...DEFAULT_PLATFORM_PRODUCTS];
+  if (!stores || stores.length === 0) stores = [...DEFAULT_PLATFORM_STORES];
+
+  return handleLocalHeuristicResponse(userMessage, products, stores, cart, deliveryFee);
+}
+
 function handleLocalHeuristicResponse(
   userMessage: string,
   products: any[],
@@ -697,7 +922,7 @@ function handleLocalHeuristicResponse(
       responseText = 'Tu carrito de compras está vacío actualmente. Puedes pedirme una hamburguesa, pizza, sushi o consultar los menús disponibles.';
     } else {
       const itemsList = cart.map(i => `${i.quantity}x ${i.name}`).join(', ');
-      responseText = `Tienes ${itemCount} plato(s) en tu carrito: ${itemsList}. Subtotal: $${totalAmount.toLocaleString('es-CO')} COP. ¿Deseas confirmar tu pedido?`;
+      responseText = `Tienes ${itemCount} plato(s) en tu carrito: ${itemsList}. Subtotal: ${totalAmount.toLocaleString('es-CO')} pesos. ¿Deseas confirmar tu pedido?`;
     }
   }
   // 2. Add to cart request (e.g. "quiero una hamburguesa", "agrega 2 pizzas")
@@ -727,7 +952,7 @@ function handleLocalHeuristicResponse(
         product: candidate,
         quantity: qty
       });
-      responseText = `¡Listo! He agregado ${qty} ${candidate.name} a tu carrito ($${(candidate.price * qty).toLocaleString('es-CO')} COP). ¿Deseas algo más o quieres confirmar tu pedido?`;
+      responseText = `¡Listo! He agregado ${qty} ${candidate.name} a tu carrito (${(candidate.price * qty).toLocaleString('es-CO')} pesos). ¿Deseas algo más o quieres confirmar tu pedido?`;
     } else {
       // Search matching products
       const searchMatches = products.filter(p => p.active !== false && (
@@ -743,35 +968,85 @@ function handleLocalHeuristicResponse(
           results: searchMatches.slice(0, 5),
           stores: []
         });
-        const names = searchMatches.slice(0, 2).map(m => `${m.name} ($${m.price.toLocaleString('es-CO')})`).join(', ');
+        const names = searchMatches.slice(0, 2).map(m => `${m.name} por ${m.price.toLocaleString('es-CO')} pesos`).join(', ');
         responseText = `Encontré estas opciones: ${names}. ¿Cuál de ellos deseas que agregue a tu carrito?`;
       } else {
         responseText = `¿Qué plato te gustaría pedir? Tenemos opciones disponibles en nuestras tiendas. Puedes decirme por ejemplo "Quiero una hamburguesa" o "Ver pizzas".`;
       }
     }
   }
-  // 3. Search / Menu queries
-  else if (lower.includes('pizza') || lower.includes('hamburguesa') || lower.includes('pollo') || lower.includes('sushi') || lower.includes('menu') || lower.includes('menú') || lower.includes('platos') || lower.includes('restaurantes')) {
+  // 3. Search / Menu queries (pollo, pizza, hamburguesa, comidas, etc.)
+  else if (
+    lower.includes('pizza') || 
+    lower.includes('hamburguesa') || 
+    lower.includes('pollo') || 
+    lower.includes('pechuga') || 
+    lower.includes('alita') || 
+    lower.includes('broaster') || 
+    lower.includes('asado') || 
+    lower.includes('salchipapa') || 
+    lower.includes('perro') || 
+    lower.includes('carne') || 
+    lower.includes('bebida') || 
+    lower.includes('sushi') || 
+    lower.includes('menu') || 
+    lower.includes('menú') || 
+    lower.includes('platos') || 
+    lower.includes('restaurantes') ||
+    lower.includes('comida') ||
+    lower.includes('comer')
+  ) {
+    const rawTokens = lower.split(/\s+/).map((t: string) => t.replace(/[^a-záéíóúüñ0-9]/gi, '')).filter((t: string) => t.length >= 3);
+
     const searchMatches = products.filter(p => {
       if (p.active === false) return false;
-      const pName = p.name.toLowerCase();
+      const pName = (p.name || '').toLowerCase();
       const pCat = (p.category || '').toLowerCase();
-      return lower.includes(pName) || pName.split(/\s+/).some(w => w.length > 3 && lower.includes(w)) || (pCat && lower.includes(pCat));
+      const pDesc = (p.description || '').toLowerCase();
+
+      // Check specific food concepts
+      if (lower.includes('pollo') || lower.includes('pollos')) {
+        if (pName.includes('pollo') || pCat.includes('pollo') || pDesc.includes('pollo') || pName.includes('pechuga') || pName.includes('alitas') || pName.includes('broaster')) {
+          return true;
+        }
+      }
+      if (lower.includes('hamburguesa') || lower.includes('burger')) {
+        if (pName.includes('hamburguesa') || pCat.includes('hamburguesa') || pName.includes('burger') || pDesc.includes('angus')) {
+          return true;
+        }
+      }
+      if (lower.includes('pizza')) {
+        if (pName.includes('pizza') || pCat.includes('pizza')) {
+          return true;
+        }
+      }
+
+      // Token matching
+      const tokenMatch = rawTokens.some((tok: string) => {
+        const singular = tok.endsWith('s') ? tok.slice(0, -1) : tok;
+        return pName.includes(tok) || pName.includes(singular) ||
+               pDesc.includes(tok) || pDesc.includes(singular) ||
+               pCat.includes(tok) || pCat.includes(singular);
+      });
+
+      return tokenMatch || lower.includes(pName);
     });
+
+    const finalResults = searchMatches.length > 0 ? searchMatches : products;
 
     executedActions.push({
       type: 'PRODUCTS_SEARCHED',
       query: userMessage,
-      results: searchMatches.length > 0 ? searchMatches.slice(0, 8) : products.slice(0, 6),
+      results: finalResults.slice(0, 8),
       stores: stores.slice(0, 4)
     });
 
     if (searchMatches.length > 0) {
-      const topItems = searchMatches.slice(0, 3).map(p => `${p.name} por $${p.price.toLocaleString('es-CO')}`).join(', ');
+      const topItems = searchMatches.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${p.storeName || 'Pollos & Asados El Rey'}`).join(', ');
       responseText = `Encontré ${searchMatches.length} opción(es) disponibles: ${topItems}. ¿Te gustaría que agregue alguna a tu pedido?`;
     } else {
-      const topGeneral = products.slice(0, 3).map(p => p.name).join(', ');
-      responseText = `Tenemos platos como ${topGeneral}. ¿Cuál te gustaría ordenar?`;
+      const topGeneral = products.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ');
+      responseText = `Tenemos deliciosos platos disponibles como ${topGeneral}. ¿Cuál te gustaría ordenar?`;
     }
   }
   // 4. Confirm order request
@@ -794,7 +1069,7 @@ function handleLocalHeuristicResponse(
           paymentMethod: 'delivery_cash'
         }
       });
-      responseText = `El total de tu pedido es $${grandTotal.toLocaleString('es-CO')} COP con domicilio incluido. Por favor confirma tus datos de entrega para enviarlo a los restaurantes.`;
+      responseText = `El total de tu pedido es ${grandTotal.toLocaleString('es-CO')} pesos con domicilio incluido. Por favor confirma tus datos de entrega para enviarlo a los restaurantes.`;
     }
   }
   // 5. Default greeting & assistance
@@ -802,9 +1077,19 @@ function handleLocalHeuristicResponse(
     responseText = '¡Hola! Soy tu asistente LinnkPro. Puedo ayudarte a buscar platos, agregarlos a tu carrito o completar tu pedido. ¿Qué te gustaría ordenar hoy?';
   }
 
+  const speechText = responseText
+    .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+    .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+    .replace(/\$/g, '')
+    .replace(/\bd[oó]lares\b/gi, 'pesos')
+    .replace(/\bd[oó]lar\b/gi, 'peso')
+    .replace(/[*_#`~]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .trim();
+
   return {
     text: responseText,
-    speechText: responseText.replace(/[*_#`~]/g, '').trim(),
+    speechText,
     actions: executedActions,
     functionCalls: []
   };
