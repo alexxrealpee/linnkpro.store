@@ -889,9 +889,7 @@ export function processFallbackVoiceAssistantMessage(
   history: any[] = [],
   context: VoiceAssistantContext
 ) {
-  let { products = [], stores = [], cart = [], deliveryFee = 4000 } = context;
-  if (!products || products.length === 0) products = [...DEFAULT_PLATFORM_PRODUCTS];
-  if (!stores || stores.length === 0) stores = [...DEFAULT_PLATFORM_STORES];
+  const { products = [], stores = [], cart = [], deliveryFee = 4000 } = context;
 
   return handleLocalHeuristicResponse(userMessage, products, stores, cart, deliveryFee);
 }
@@ -1042,7 +1040,7 @@ function handleLocalHeuristicResponse(
     });
 
     if (searchMatches.length > 0) {
-      const topItems = searchMatches.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${p.storeName || 'Pollos & Asados El Rey'}`).join(', ');
+      const topItems = searchMatches.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${p.storeName || 'el restaurante'}`).join(', ');
       responseText = `Encontré ${searchMatches.length} opción(es) disponibles: ${topItems}. ¿Te gustaría que agregue alguna a tu pedido?`;
     } else {
       const topGeneral = products.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ');

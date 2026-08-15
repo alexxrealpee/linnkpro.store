@@ -1030,7 +1030,7 @@ export default function LinnkProVoiceAssistant({
               ? 'bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] text-white border-[#E63946] ring-4 ring-[#E63946]/30 animate-pulse'
               : 'bg-[#090B12]/95 hover:bg-[#111827] text-white border-[#E63946]/40 hover:border-[#E63946] shadow-2xl shadow-red-950/60 hover:scale-105'
           }`}
-          aria-label="Hablar con LinnkPro AI"
+          aria-label="Hablar con Asistente de Voz AI"
         >
           {/* Animated Glow Ring */}
           <span className="absolute -inset-1 rounded-full bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] opacity-35 blur group-hover:opacity-75 transition duration-500"></span>
@@ -1049,8 +1049,8 @@ export default function LinnkProVoiceAssistant({
           </div>
 
           <div className="relative flex flex-col text-left pr-1">
-            <span className="text-xs font-black tracking-wide uppercase leading-tight text-white flex items-center gap-1.5">
-              linnkpro<span className="text-[#F4B400]">.ai voice</span>
+            <span className="text-xs font-black tracking-wide uppercase leading-tight flex items-center gap-1.5">
+              <span className="text-[#F4B400]">.AI VOICE</span>
               <span className={`inline-block w-2 h-2 rounded-full ${isInVoiceCall ? 'bg-[#F4B400] animate-ping' : 'bg-[#E63946]'}`}></span>
             </span>
             <span className="text-[11px] font-medium text-[#A9B2C3] leading-tight">

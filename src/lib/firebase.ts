@@ -1537,193 +1537,17 @@ export function checkIsStoreClosed(profile?: {
   return false;
 }
 
-// Predefined rich default catalog for platform restaurants (Pollos, Burgers, Pizzas, etc.)
-export const DEFAULT_PLATFORM_STORES: Record<string, UserProfile> = {
-  'store_pollos_elrey': {
-    uid: 'store_pollos_elrey',
-    email: 'contacto@polloselrey.com',
-    username: 'polloselrey',
-    displayName: 'Pollos & Asados El Rey',
-    bio: 'Especialistas en Pollo Asado y Broaster con el auténtico sabor tradicional colombiano.',
-    category: 'Restaurante',
-    phone: '3001234567',
-    whatsapp: '3001234567',
-    address: 'Calle 45 # 13-20, Zona Centro',
-    role: 'user',
-    plan: 'pro',
-    createdAt: new Date().toISOString(),
-    isClosed: false,
-    rating: 4.9,
-    ratingCount: 142
-  },
-  'store_burger_monster': {
-    uid: 'store_burger_monster',
-    email: 'pedidos@burgermonster.com',
-    username: 'burgermonster',
-    displayName: 'Burger Monster Grill',
-    bio: 'Hamburguesas artesanales 100% Angus, salchipapas gigantes y desgranados.',
-    category: 'Comidas Rápidas',
-    phone: '3109876543',
-    whatsapp: '3109876543',
-    address: 'Carrera 15 # 85-30, Zona Rosa',
-    role: 'user',
-    plan: 'pro',
-    createdAt: new Date().toISOString(),
-    isClosed: false,
-    rating: 4.8,
-    ratingCount: 98
-  },
-  'store_bella_napoli': {
-    uid: 'store_bella_napoli',
-    email: 'info@bellanapoli.com',
-    username: 'bellanapoli',
-    displayName: 'Pizzería Bella Napoli',
-    bio: 'Auténtica pizza en masa madre con queso mozzarella premium y recetas italianas.',
-    category: 'Pizzería',
-    phone: '3157778899',
-    whatsapp: '3157778899',
-    address: 'Avenida Principal # 12-40',
-    role: 'user',
-    plan: 'pro',
-    createdAt: new Date().toISOString(),
-    isClosed: false,
-    rating: 4.9,
-    ratingCount: 115
-  }
-};
+// Platform stores and products defaults (empty by default so only real registered stores and products appear)
+export const DEFAULT_PLATFORM_STORES: Record<string, UserProfile> = {};
 
-export const DEFAULT_PLATFORM_PRODUCTS: ProductItem[] = [
-  {
-    id: 'prod_pollo_asado_entero',
-    userId: 'store_pollos_elrey',
-    name: 'Pollo Asado Entero con Papas y Arepas',
-    description: 'Pollo asado jugoso y dorado al carbón, acompañado de papas saladas, arepas de maíz y ají casero.',
-    price: 28000,
-    category: 'Pollo',
-    stock: 50,
-    active: true,
-    variantsText: 'Con Ají suave, Con Ají picante',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_medio_pollo_broaster',
-    userId: 'store_pollos_elrey',
-    name: 'Combo 1/2 Pollo Broaster Crujiente',
-    description: 'Medio pollo apanado estilo broaster ultra crujiente con porción de yuca frita, papas francesas y miel.',
-    price: 18500,
-    category: 'Pollo',
-    stock: 40,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_pechuga_gratinada',
-    userId: 'store_pollos_elrey',
-    name: 'Pechuga a la Plancha Gratinada',
-    description: 'Filete de pechuga tierna bañada en queso mozzarella fundido, champiñones, arroz y ensalada fresca.',
-    price: 22000,
-    category: 'Pollo',
-    stock: 35,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_alitas_bbq',
-    userId: 'store_pollos_elrey',
-    name: 'Alitas BBQ x 10 con Papas a la Francesa',
-    description: '10 alitas crujientes bañadas en salsa BBQ dulce ahumada con papas a la francesa y salsa ranch.',
-    price: 24000,
-    category: 'Pollo',
-    stock: 60,
-    active: true,
-    variantsText: 'Salsa BBQ, Salsa Miel Mostaza, Salsa Picante Buffalo',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_burger_doble_angus',
-    userId: 'store_burger_monster',
-    name: 'Hamburguesa Doble Carne Angus Especial',
-    description: '300g de carne Angus seleccionada, doble queso cheddar, tocineta crujiente, cebolla caramelizada y salsa de la casa.',
-    price: 25000,
-    category: 'Hamburguesas',
-    stock: 45,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_salchipapa_costena',
-    userId: 'store_burger_monster',
-    name: 'Salchipapa Especial Costeña Gratinada',
-    description: 'Papas a la francesa crocantes con salchicha manguera, pollo desmechado, tocineta, queso costeño y salsas especiales.',
-    price: 19000,
-    category: 'Comidas Rápidas',
-    stock: 50,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_perro_caliente_suizo',
-    userId: 'store_burger_monster',
-    name: 'Perro Caliente Especial Suizo',
-    description: 'Salchicha tipo suiza en pan suave con tocineta picada, papas ripio, queso fundido y salsa de piña.',
-    price: 14000,
-    category: 'Comidas Rápidas',
-    stock: 40,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_pizza_pepperoni',
-    userId: 'store_bella_napoli',
-    name: 'Pizza Mediana Pepperoni y Extra Queso',
-    description: 'Masa artesanal horneada a la piedra, salsa pomodoro italiana, abundante queso mozzarella y rodajas de pepperoni.',
-    price: 32000,
-    category: 'Pizzas',
-    stock: 30,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_pizza_hawaiana',
-    userId: 'store_bella_napoli',
-    name: 'Pizza Hawaiana Especial Jamón y Piña',
-    description: 'Clásica combinación de piña caramelizada artesanal, jamón de pierna seleccionado y mozzarella dorado.',
-    price: 29000,
-    category: 'Pizzas',
-    stock: 30,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_limonada_coco',
-    userId: 'store_pollos_elrey',
-    name: 'Limonada de Coco Natural 500ml',
-    description: 'Refrescante limonada frappé batida con crema y leche de coco fresca.',
-    price: 8500,
-    category: 'Bebidas',
-    stock: 100,
-    active: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'prod_gaseosa_cocacola',
-    userId: 'store_pollos_elrey',
-    name: 'Gaseosa Coca-Cola Personal 400ml',
-    description: 'Gaseosa Coca-Cola helada en presentación personal.',
-    price: 4500,
-    category: 'Bebidas',
-    stock: 150,
-    active: true,
-    createdAt: new Date().toISOString()
-  }
-];
+export const DEFAULT_PLATFORM_PRODUCTS: ProductItem[] = [];
 
-// Fetch all active products and profiles from Firestore with full offline/demo fallback
+// Fetch all active products and profiles from Firestore
 export async function fetchAllActiveProductsAndStores(): Promise<{ products: ProductItem[]; profiles: Record<string, UserProfile> }> {
   try {
     // 1. Fetch profiles
     const profilesSnapshot = await getDocs(collection(db, 'profiles')).catch(() => null);
-    const profilesMap: Record<string, UserProfile> = { ...DEFAULT_PLATFORM_STORES };
+    const profilesMap: Record<string, UserProfile> = {};
     const openUserIds: string[] = [];
 
     if (profilesSnapshot && !profilesSnapshot.empty) {
@@ -1776,22 +1600,10 @@ export async function fetchAllActiveProductsAndStores(): Promise<{ products: Pro
       }
     } catch (e) {}
 
-    // 4. If Firestore or local database has no products yet, populate with DEFAULT_PLATFORM_PRODUCTS
-    if (products.length === 0) {
-      DEFAULT_PLATFORM_PRODUCTS.forEach(p => products.push(p));
-    } else {
-      // Ensure key popular staples like Pollo & Hamburguesas are present if not already added
-      DEFAULT_PLATFORM_PRODUCTS.forEach(dp => {
-        if (!products.some(p => p.name.toLowerCase() === dp.name.toLowerCase())) {
-          products.push(dp);
-        }
-      });
-    }
-
     return { products: deduplicateProducts(products), profiles: profilesMap };
   } catch (e) {
     console.error("Error fetching all active products and profiles:", e);
-    return { products: DEFAULT_PLATFORM_PRODUCTS, profiles: DEFAULT_PLATFORM_STORES };
+    return { products: [], profiles: {} };
   }
 }
 
