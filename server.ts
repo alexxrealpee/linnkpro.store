@@ -7,13 +7,31 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
+import OpenAI from 'openai';
 import dotenv from 'dotenv';
-import { processVoiceAssistantMessage, processFallbackVoiceAssistantMessage } from './server/voiceAssistant';
+import {
+  processVoiceAssistantMessage,
+  processOpenAIVoiceAssistantMessage,
+  processFallbackVoiceAssistantMessage,
+  generateOpenAITTS
+} from './server/voiceAssistant';
+import { createRealtimeSessionHandler } from './server/realtimeSession';
 
 // Load environmental variables
 dotenv.config();
 
 let aiClient: GoogleGenAI | null = null;
+let openaiClient: OpenAI | null = null;
+let openaiQuotaExhaustedUntil: number = 0;
+
+function isOpneAIQuotaExhausted(): boolean {
+  return Date.now() < openaiQuotaExhaustedUntil;
+}
+
+function markOpenAIQuotaExhausted() {
+  // Cooldown for 5 minutes before retrying OpenAI
+  openaiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
+}
 
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -31,6 +49,17 @@ function getGeminiClient() {
     });
   }
   return aiClient;
+}
+
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
 }
 
 async function startServer() {
@@ -52,7 +81,7 @@ async function startServer() {
 
       const ai = getGeminiClient();
 
-      const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'];
       let response: any = null;
       for (const modelName of candidateModels) {
         try {
@@ -95,9 +124,9 @@ Texto del usuario:
               }
             }
           });
-          if (response) break;
+          if (response && response.text) break;
         } catch (mErr) {
-          console.warn(`Model ${modelName} error in parse-links, trying next...`);
+          console.warn(`Model ${modelName} unavailable or busy in parse-links, trying next model...`);
         }
       }
 
@@ -128,7 +157,7 @@ Texto del usuario:
 
       const ai = getGeminiClient();
 
-      const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'];
       let response: any = null;
       for (const modelName of candidateModels) {
         try {
@@ -200,9 +229,9 @@ Formatos válidos para:
               }
             }
           });
-          if (response) break;
+          if (response && response.text) break;
         } catch (mErr) {
-          console.warn(`Model ${modelName} error in generate-profile, trying next...`);
+          console.warn(`Model ${modelName} unavailable or busy in generate-profile, trying next model...`);
         }
       }
 
@@ -222,8 +251,8 @@ Formatos válidos para:
     }
   });
 
-  // API Route: LinnkPro AI Voice Assistant
-  app.post('/api/gemini/voice-assistant', async (req, res) => {
+  // API Route: LinnkPro AI Voice Assistant (supports ChatGPT and Gemini)
+  const handleVoiceAssistantRequest = async (req: express.Request, res: express.Response) => {
     const { message, history, catalogContext } = req.body;
     if (!message || typeof message !== 'string' || !message.trim()) {
       res.status(400).json({ error: "El mensaje de voz o texto no puede estar vacío." });
@@ -233,6 +262,29 @@ Formatos válidos para:
     const safeContext = catalogContext || { products: [], stores: [], deliveryFee: 4000, cart: [] };
 
     try {
+      const openai = getOpenAIClient();
+      if (openai && !isOpneAIQuotaExhausted()) {
+        // Priority 1: OpenAI ChatGPT (GPT-4o-mini / GPT-4o)
+        try {
+          const chatGPTResult = await processOpenAIVoiceAssistantMessage(
+            openai,
+            message.trim(),
+            history || [],
+            safeContext
+          );
+          res.json(chatGPTResult);
+          return;
+        } catch (chatGPTErr: any) {
+          if (chatGPTErr?.status === 429 || chatGPTErr?.code === 'insufficient_quota' || chatGPTErr?.message?.includes('credits') || chatGPTErr?.message?.includes('429')) {
+            markOpenAIQuotaExhausted();
+            console.info("OpenAI API key has no remaining credits (429). Seamlessly routing to Gemini AI.");
+          } else {
+            console.warn("OpenAI ChatGPT processing failed, trying secondary AI model:", chatGPTErr);
+          }
+        }
+      }
+
+      // Priority 2: Gemini models with smart fallback
       let ai: GoogleGenAI | null = null;
       try {
         ai = getGeminiClient();
@@ -265,10 +317,23 @@ Formatos válidos para:
       );
       res.json(fallbackResult);
     }
+  };
+
+  app.post('/api/gemini/voice-assistant', handleVoiceAssistantRequest);
+  app.post('/api/voice-assistant', handleVoiceAssistantRequest);
+
+  // API Route: OpenAI Realtime Voice WebRTC Session (Secure Ephemeral Token Provisioning)
+  app.post('/api/realtime/session', async (req, res) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    await createRealtimeSessionHandler(req, res, apiKey);
+  });
+  app.post('/api/realtime-session', async (req, res) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    await createRealtimeSessionHandler(req, res, apiKey);
   });
 
-  // API Route: LinnkPro AI Voice Text-to-Speech (TTS)
-  app.post('/api/gemini/tts', async (req, res) => {
+  // API Route: LinnkPro AI Voice Text-to-Speech (TTS) (supports OpenAI TTS and Gemini TTS)
+  const handleTTSRequest = async (req: express.Request, res: express.Response) => {
     try {
       const { text } = req.body;
       if (!text || typeof text !== 'string' || !text.trim()) {
@@ -276,7 +341,6 @@ Formatos válidos para:
         return;
       }
 
-      const ai = getGeminiClient();
       // Format prices and natural human pauses
       const cleanText = text
         .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
@@ -290,52 +354,76 @@ Formatos válidos para:
         .trim()
         .substring(0, 450);
 
-      const candidateModels = [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-exp',
-        'gemini-3.1-flash-tts-preview'
-      ];
-
-      let audioPart: any = null;
-
-      for (const modelName of candidateModels) {
+      // Check OpenAI TTS first if key is present and has quota
+      const openai = getOpenAIClient();
+      if (openai && !isOpneAIQuotaExhausted()) {
         try {
-          const response = await ai.models.generateContent({
-            model: modelName,
-            contents: [{ parts: [{ text: cleanText }] }],
-            config: {
-              responseModalities: [Modality.AUDIO],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: 'Aoede' }
-                }
-              }
-            }
-          });
-
-          audioPart = response.candidates?.[0]?.content?.parts?.[0];
-          if (audioPart?.inlineData?.data) {
-            break;
+          const ttsResult = await generateOpenAITTS(openai, cleanText);
+          res.json(ttsResult);
+          return;
+        } catch (oErr: any) {
+          if (oErr?.status === 429 || oErr?.code === 'insufficient_quota' || oErr?.message?.includes('credits') || oErr?.message?.includes('429')) {
+            markOpenAIQuotaExhausted();
+          } else {
+            console.warn("OpenAI TTS speech synthesis failed, falling back to Gemini / Web Speech:", oErr);
           }
-        } catch (err: any) {
-          // Continue to next candidate model
         }
       }
 
-      if (audioPart?.inlineData?.data) {
-        res.json({
-          audio: audioPart.inlineData.data,
-          mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000'
-        });
-      } else {
-        res.status(200).json({ fallback: true });
+      let ai: GoogleGenAI | null = null;
+      try {
+        ai = getGeminiClient();
+      } catch (e) {}
+
+      if (ai) {
+        const candidateModels = [
+          'gemini-3.1-flash-tts-preview'
+        ];
+
+        let audioPart: any = null;
+
+        for (const modelName of candidateModels) {
+          try {
+            const response = await ai.models.generateContent({
+              model: modelName,
+              contents: [{ parts: [{ text: cleanText }] }],
+              config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: 'Aoede' }
+                  }
+                }
+              }
+            });
+
+            audioPart = response.candidates?.[0]?.content?.parts?.[0];
+            if (audioPart?.inlineData?.data) {
+              break;
+            }
+          } catch (err: any) {
+            // Continue to next candidate model
+          }
+        }
+
+        if (audioPart?.inlineData?.data) {
+          res.json({
+            audio: audioPart.inlineData.data,
+            mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000'
+          });
+          return;
+        }
       }
+
+      res.status(200).json({ fallback: true });
     } catch (error: any) {
       // Seamlessly fallback to browser Web Speech API without noisy error logs
       res.status(200).json({ fallback: true, message: "Browser TTS fallback active" });
     }
-  });
+  };
+
+  app.post('/api/gemini/tts', handleTTSRequest);
+  app.post('/api/tts', handleTTSRequest);
 
   // Serve static files / Vite middleware
   if (process.env.NODE_ENV !== 'production') {

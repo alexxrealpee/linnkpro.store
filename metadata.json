@@ -1,5 +1,5 @@
 {
-  "name": "Ipiales gastronomía",
+  "name": "Ipiales Gastronomia",
   "description": "Plataforma estilo Shopify que permite a los usuarios crear, personalizar y gestionar su propia tienda online, productos, inventario, temas y recepcionar pedidos en tiempo real con checkout directo y WhatsApp.",
   "requestFramePermissions": [
     "microphone"

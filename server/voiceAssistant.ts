@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI, Type, FunctionDeclaration, Modality } from '@google/genai';
+import type OpenAI from 'openai';
 
 export interface CatalogProduct {
   id: string;
@@ -290,8 +291,18 @@ const navigateToStoreFunction: FunctionDeclaration = {
   }
 };
 
+const listOpenRestaurantsFunction: FunctionDeclaration = {
+  name: "list_open_restaurants",
+  description: "Lista todos los restaurantes y tiendas abiertas en la plataforma LinnkPro con sus especialidades.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}
+  }
+};
+
 export const assistantTools = [
   searchProductsFunction,
+  listOpenRestaurantsFunction,
   getRestaurantMenuFunction,
   getProductDetailsFunction,
   getCartFunction,
@@ -305,20 +316,514 @@ export const assistantTools = [
   navigateToStoreFunction
 ];
 
-export const DEFAULT_PLATFORM_STORES: CatalogStore[] = [];
+// OpenAI Chat Completions Tools schema definition
+export const openAITools: any[] = [
+  {
+    type: "function",
+    function: {
+      name: "search_products_and_stores",
+      description: "Busca productos, platos, bebidas, comidas rápidas, postres o restaurantes en el catálogo de LinnkPro. Retorna únicamente productos reales.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Término o producto a buscar (ej: 'hamburguesa', 'pizza', 'pollo')." },
+          category: { type: "string", description: "Categoría opcional." },
+          storeName: { type: "string", description: "Nombre de restaurante opcional." }
+        },
+        required: ["query"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_open_restaurants",
+      description: "Lista todos los restaurantes y tiendas abiertas en la plataforma LinnkPro con sus especialidades.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_restaurant_menu",
+      description: "Consulta el menú de un restaurante o tienda específica.",
+      parameters: {
+        type: "object",
+        properties: {
+          storeNameOrUsername: { type: "string", description: "Nombre o username de la tienda." }
+        },
+        required: ["storeNameOrUsername"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_product_details",
+      description: "Obtiene información detallada de un plato o producto.",
+      parameters: {
+        type: "object",
+        properties: {
+          productIdOrName: { type: "string", description: "ID o nombre del producto." }
+        },
+        required: ["productIdOrName"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_cart",
+      description: "Consulta los productos actuales en el carrito del cliente.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_to_cart",
+      description: "Agrega un producto real al carrito.",
+      parameters: {
+        type: "object",
+        properties: {
+          productId: { type: "string", description: "ID del producto." },
+          productName: { type: "string", description: "Nombre del producto." },
+          quantity: { type: "number", description: "Cantidad (default 1)." },
+          variant: { type: "string", description: "Variante opcional." }
+        },
+        required: ["productId", "quantity"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_cart_quantity",
+      description: "Actualiza la cantidad de un producto en el carrito.",
+      parameters: {
+        type: "object",
+        properties: {
+          productId: { type: "string" },
+          quantity: { type: "number" }
+        },
+        required: ["productId", "quantity"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_from_cart",
+      description: "Elimina un producto del carrito.",
+      parameters: {
+        type: "object",
+        properties: {
+          productId: { type: "string" }
+        },
+        required: ["productId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "clear_cart",
+      description: "Vacía el carrito de compras.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "request_order_confirmation",
+      description: "Presenta el resumen del pedido para revisión del cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          customerName: { type: "string" },
+          customerPhone: { type: "string" },
+          customerAddress: { type: "string" },
+          paymentMethod: { type: "string" },
+          notes: { type: "string" }
+        },
+        required: ["customerName", "customerPhone", "customerAddress"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_order",
+      description: "Crea el pedido tras confirmación explícita del cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          customerName: { type: "string" },
+          customerPhone: { type: "string" },
+          customerAddress: { type: "string" },
+          paymentMethod: { type: "string" },
+          notes: { type: "string" },
+          isConfirmed: { type: "boolean" }
+        },
+        required: ["customerName", "customerPhone", "customerAddress", "isConfirmed"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_order_status",
+      description: "Consulta el estado de un pedido.",
+      parameters: {
+        type: "object",
+        properties: {
+          orderNumber: { type: "number" },
+          customerPhone: { type: "string" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "navigate_to_store",
+      description: "Navega a la tienda o restaurante especificado.",
+      parameters: {
+        type: "object",
+        properties: {
+          storeUsername: { type: "string" }
+        },
+        required: ["storeUsername"]
+      }
+    }
+  }
+];
 
-export const DEFAULT_PLATFORM_PRODUCTS: CatalogProduct[] = [];
+// Unified Tool Execution Helper
+export function executeAssistantToolCall(
+  callName: string,
+  args: any,
+  context: {
+    products: CatalogProduct[];
+    stores: CatalogStore[];
+    cart: CartPayloadItem[];
+    deliveryFee: number;
+    recentOrders?: any[];
+  }
+): { action: any; resultText?: string } {
+  const { products, stores, cart, deliveryFee, recentOrders = [] } = context;
 
-export async function processVoiceAssistantMessage(
-  ai: GoogleGenAI,
+  if (callName === 'search_products_and_stores') {
+    const queryTerm = (args.query || '').toLowerCase().trim();
+    const storeTerm = (args.storeName || '').toLowerCase().trim();
+    const categoryTerm = (args.category || '').toLowerCase().trim();
+
+    const rawTokens = queryTerm.split(/\s+/).map((t: string) => t.replace(/[^a-záéíóúüñ0-9]/gi, '')).filter((t: string) => t.length >= 3);
+
+    const matches = products.filter(p => {
+      if (p.active === false) return false;
+      const pName = (p.name || '').toLowerCase();
+      const pDesc = (p.description || '').toLowerCase();
+      const pCat = (p.category || '').toLowerCase();
+      const pStore = (p.storeName || '').toLowerCase();
+
+      const exactMatch = queryTerm ? (pName.includes(queryTerm) || pDesc.includes(queryTerm) || pCat.includes(queryTerm)) : true;
+      const tokenMatch = rawTokens.some((tok: string) => {
+        const singular = tok.endsWith('s') ? tok.slice(0, -1) : tok;
+        return pName.includes(tok) || pName.includes(singular) ||
+               pDesc.includes(tok) || pDesc.includes(singular) ||
+               pCat.includes(tok) || pCat.includes(singular);
+      });
+
+      const matchCat = categoryTerm ? pCat.includes(categoryTerm) : true;
+      const matchStore = storeTerm ? pStore.includes(storeTerm) : true;
+      return (exactMatch || tokenMatch) && matchCat && matchStore;
+    });
+
+    const matchingStores = stores.filter(s => 
+      !s.isClosed && (s.displayName.toLowerCase().includes(queryTerm) || s.username.toLowerCase().includes(queryTerm))
+    );
+
+    const action = {
+      type: 'PRODUCTS_SEARCHED',
+      query: args.query,
+      results: (matches.length > 0 ? matches : products).slice(0, 10),
+      stores: matchingStores.slice(0, 5)
+    };
+
+    let resultText = '';
+    if (matches.length > 0) {
+      const topNames = matches.slice(0, 3).map(m => `${m.name} por ${m.price.toLocaleString('es-CO')} pesos en ${m.storeName || 'la tienda'}`).join(', ');
+      resultText = `Encontré ${matches.length} opción(es) para "${args.query}": ${topNames}.`;
+    } else if (products.length > 0) {
+      const topGeneral = products.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${p.storeName || 'el restaurante'}`).join(', ');
+      resultText = `Tenemos disponibles: ${topGeneral}.`;
+    } else {
+      resultText = `No encontré resultados para "${args.query}".`;
+    }
+
+    return { action, resultText };
+  }
+
+  if (callName === 'list_open_restaurants') {
+    const action = {
+      type: 'OPEN_STORES_LISTED',
+      stores: stores.slice(0, 10)
+    };
+    const storeNames = stores.slice(0, 5).map(s => s.displayName).join(', ');
+    const resultText = stores.length > 0
+      ? `Tenemos abiertos y disponibles los siguientes restaurantes: ${storeNames}. ¿Qué te gustaría ordenar hoy?`
+      : `Tenemos restaurantes disponibles en LinnkPro listos para tu pedido.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'get_product_details') {
+    const term = (args.productIdOrName || '').toLowerCase();
+    const found = products.find(p => p.id === args.productIdOrName || p.name.toLowerCase().includes(term));
+    const action = {
+      type: 'PRODUCT_DETAILS',
+      product: found || null
+    };
+    const resultText = found
+      ? `${found.name} cuesta ${found.price.toLocaleString('es-CO')} pesos en ${found.storeName || 'la tienda'}. ${found.description || ''}`
+      : `No se encontraron detalles para ${args.productIdOrName}.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'get_restaurant_menu') {
+    const term = (args.storeNameOrUsername || '').toLowerCase();
+    const targetStore = stores.find(s => 
+      s.displayName.toLowerCase().includes(term) || s.username.toLowerCase().includes(term) || s.uid === term
+    );
+    const storeProducts = targetStore 
+      ? products.filter(p => p.userId === targetStore.uid && p.active !== false)
+      : [];
+    const action = {
+      type: 'RESTAURANT_MENU',
+      store: targetStore || null,
+      products: storeProducts
+    };
+    const resultText = targetStore
+      ? `El restaurante ${targetStore.displayName} tiene ${storeProducts.length} platos en su menú.`
+      : `No se encontró el restaurante ${args.storeNameOrUsername}.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'get_cart') {
+    const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const action = {
+      type: 'CART_SUMMARY',
+      cart,
+      totalAmount,
+      itemCount
+    };
+    const itemsList = cart.map(i => `${i.quantity}x ${i.name}`).join(', ');
+    const resultText = itemCount === 0
+      ? `El carrito está vacío.`
+      : `Carrito: ${itemCount} plato(s) (${itemsList}), subtotal ${totalAmount.toLocaleString('es-CO')} pesos.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'add_to_cart') {
+    const targetProduct = products.find(p => p.id === args.productId || p.name.toLowerCase().includes((args.productId || '').toLowerCase()));
+    if (targetProduct) {
+      const action = {
+        type: 'ADD_TO_CART',
+        product: targetProduct,
+        quantity: args.quantity || 1,
+        variant: args.variant
+      };
+      const resultText = `Agregado ${args.quantity || 1} ${targetProduct.name} al carrito por ${targetProduct.price.toLocaleString('es-CO')} pesos.`;
+      return { action, resultText };
+    }
+    return { action: null, resultText: `No se pudo encontrar el producto para agregar.` };
+  }
+
+  if (callName === 'update_cart_quantity') {
+    return {
+      action: {
+        type: 'UPDATE_CART_QUANTITY',
+        productId: args.productId,
+        quantity: args.quantity
+      },
+      resultText: `Cantidad actualizada en el carrito.`
+    };
+  }
+
+  if (callName === 'remove_from_cart') {
+    return {
+      action: {
+        type: 'REMOVE_FROM_CART',
+        productId: args.productId
+      },
+      resultText: `Producto eliminado del carrito.`
+    };
+  }
+
+  if (callName === 'clear_cart') {
+    return {
+      action: { type: 'CLEAR_CART' },
+      resultText: `Carrito vaciado.`
+    };
+  }
+
+  if (callName === 'request_order_confirmation') {
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const storesSet = new Set(cart.map(i => i.userId));
+    const totalDelivery = storesSet.size * deliveryFee;
+    const grandTotal = subtotal + totalDelivery;
+
+    const action = {
+      type: 'ORDER_CONFIRMATION_REQUESTED',
+      orderProposal: {
+        customerName: args.customerName,
+        customerPhone: args.customerPhone,
+        customerAddress: args.customerAddress,
+        paymentMethod: args.paymentMethod || 'delivery_cash',
+        notes: args.notes || '',
+        items: cart,
+        subtotal,
+        deliveryFee: totalDelivery,
+        grandTotal,
+        storesCount: storesSet.size
+      }
+    };
+    const resultText = `Resumen preparado: total ${grandTotal.toLocaleString('es-CO')} pesos para entrega a ${args.customerName}.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'create_order') {
+    if (args.isConfirmed) {
+      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const storesSet = new Set(cart.map(i => i.userId));
+      const totalDelivery = storesSet.size * deliveryFee;
+      const grandTotal = subtotal + totalDelivery;
+
+      const action = {
+        type: 'ORDER_CREATE_CONFIRMED',
+        orderData: {
+          customerName: args.customerName,
+          customerPhone: args.customerPhone,
+          customerAddress: args.customerAddress,
+          paymentMethod: args.paymentMethod || 'delivery_cash',
+          notes: args.notes || '',
+          items: cart,
+          subtotal,
+          deliveryFee: totalDelivery,
+          grandTotal
+        }
+      };
+      return { action, resultText: `Pedido confirmado con éxito.` };
+    }
+    return { action: null, resultText: `Se requiere confirmación del cliente para crear el pedido.` };
+  }
+
+  if (callName === 'get_order_status') {
+    let matchedOrder = null;
+    if (args.orderNumber) {
+      matchedOrder = recentOrders.find(o => o.orderNumber === args.orderNumber);
+    }
+    if (!matchedOrder && args.customerPhone) {
+      matchedOrder = recentOrders.find(o => (o.customerPhone || '').includes(args.customerPhone));
+    }
+    if (!matchedOrder && recentOrders.length > 0) {
+      matchedOrder = recentOrders[0];
+    }
+    const action = {
+      type: 'ORDER_STATUS_RESULT',
+      order: matchedOrder
+    };
+    const resultText = matchedOrder
+      ? `Pedido #${matchedOrder.orderNumber}: Estado ${matchedOrder.status || 'En preparación'}. Total ${matchedOrder.totalAmount?.toLocaleString('es-CO')} pesos.`
+      : `No se encontró un pedido reciente con esos datos.`;
+    return { action, resultText };
+  }
+
+  if (callName === 'navigate_to_store') {
+    return {
+      action: {
+        type: 'NAVIGATE_TO_STORE',
+        storeUsername: args.storeUsername
+      },
+      resultText: `Navegando a @${args.storeUsername}.`
+    };
+  }
+
+  return { action: null, resultText: 'Acción ejecutada.' };
+}
+
+// Generate OpenAI Text-to-Speech (ChatGPT Voice)
+export async function generateOpenAITTS(openai: OpenAI, text: string): Promise<{ audio: string; mimeType: string }> {
+  const cleanText = text
+    .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+    .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+    .replace(/\$/g, '')
+    .replace(/\bd[oó]lares\b/gi, 'pesos')
+    .replace(/\bd[oó]lar\b/gi, 'peso')
+    .replace(/[*_#`~]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
+    .replace(/([0-9]+)\.500\s*pesos/gi, '$1 mil quinientos pesos')
+    .trim()
+    .substring(0, 450);
+
+  const mp3Response = await openai.audio.speech.create({
+    model: "tts-1",
+    voice: "nova", // nova is a natural, conversational, fluent voice in Spanish
+    input: cleanText,
+    response_format: "mp3"
+  });
+
+  const buffer = Buffer.from(await mp3Response.arrayBuffer());
+  return {
+    audio: buffer.toString('base64'),
+    mimeType: 'audio/mp3'
+  };
+}
+
+// Process voice assistant message using OpenAI ChatGPT (GPT-4o / GPT-4o-mini)
+export async function processOpenAIVoiceAssistantMessage(
+  openai: OpenAI,
   userMessage: string,
   history: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [],
   context: VoiceAssistantContext
 ) {
   let { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
 
-  // Filter only currently open stores and their active products
-  const openStores = stores.filter(s => !s.isClosed);
+  // Filter open stores and active products
+  let openStores = stores.filter(s => !s.isClosed);
+  if (openStores.length === 0 && stores.length > 0) {
+    openStores = stores;
+  }
+  if (openStores.length === 0 && products.length > 0) {
+    const storeMap = new Map<string, any>();
+    products.forEach(p => {
+      if (p.active !== false) {
+        const sKey = p.userId || p.storeUsername || p.storeName || 'tienda';
+        if (!storeMap.has(sKey)) {
+          storeMap.set(sKey, {
+            uid: p.userId || sKey,
+            username: p.storeUsername || sKey,
+            displayName: p.storeName || p.storeUsername || 'Restaurante',
+            bio: 'Restaurante y tienda oficial en LinnkPro',
+            isClosed: false
+          });
+        }
+      }
+    });
+    openStores = Array.from(storeMap.values());
+  }
+
   const openStoreUids = new Set<string>();
   openStores.forEach(s => {
     if (s.uid) openStoreUids.add(s.uid);
@@ -338,7 +843,260 @@ export async function processVoiceAssistantMessage(
     );
   });
 
-  // Ensure all downstream tool invocations and heuristics operate STRICTLY on open catalog
+  products = openProducts;
+  stores = openStores;
+
+  const activeStoresList = openStores
+    .map(s => `- ${s.displayName} (@${s.username}): ${s.bio || 'Restaurante / Tienda'}`)
+    .slice(0, 25)
+    .join('\n');
+
+  const productsSample = openProducts
+    .slice(0, 45)
+    .map(p => `[ID: ${p.id}] ${p.name} - ${p.price.toLocaleString('es-CO')} pesos (${p.storeName || 'Tienda'}) - ${p.category || 'General'}`)
+    .join('\n');
+
+  const cartItemsSummary = cart.length > 0 
+    ? cart.map(c => `- ${c.quantity}x ${c.name} (${(c.price * c.quantity).toLocaleString('es-CO')} pesos)`).join('\n')
+    : 'El carrito está actualmente vacío.';
+
+  const systemPrompt = `Eres "IAMesero" (iamesero), el mesero y asistente virtual inteligente con Inteligencia Artificial de LinnkPro.Store.
+Hablas con una voz cálida, humana, amable y natural, con acento cordial colombiano.
+Tu propósito es atender a los clientes en su mesa o domicilio, recomendar platos deliciosos de los restaurantes disponibles, responder dudas y tomar sus pedidos de manera fluida y conversacional.
+
+ESTILO DE VOZ Y CONVERSACIÓN:
+- Habla como una persona real: amable, atenta, espontánea y con calidez ("¡Hola! Qué gusto saludarte", "¡Con mucho gusto!", "Te cuento que tenemos...", "¡Quedó listo en tu carrito!").
+- Respuestas breves y sonoras: de 1 a 3 frases claras y agradables de escuchar.
+- No uses listas infinitas, viñetas ni símbolos raros que suenen robóticos al hablarse.
+
+REGLAS FUNDAMENTALES Y OBLIGATORIAS:
+1. DISPONIBILIDAD:
+   - Tienes acceso a los restaurantes y tiendas activas listadas abajo.
+   - Si el usuario pregunta qué restaurantes o tiendas están abiertos, responde mencionando los nombres de los restaurantes disponibles (ej: "${openStores.map(s => s.displayName).slice(0, 3).join(', ') || 'nuestros restaurantes afiliados'}") y pregúntale qué se le antoja comer hoy.
+2. MONEDA Y PRECIOS:
+   - La moneda oficial es PESOS COLOMBIANOS (COP).
+   - NUNCA uses el símbolo '$' ni digas 'dólares'. Di y escribe siempre 'pesos' (ej: "15.000 pesos", "veinte mil pesos").
+3. NUNCA inventes productos ni precios que no existan en las herramientas del catálogo.
+4. Para buscar platos usa 'search_products_and_stores' o 'list_open_restaurants'.
+5. Para agregar usa 'add_to_cart'.
+6. Para pedir:
+   - Solicita o confirma los datos de entrega (Nombre, Teléfono, Dirección y Método de Pago).
+   - Llama a 'request_order_confirmation' para que el cliente revise.
+   - Llama a 'create_order' solo cuando el cliente dé confirmación final ("Sí, confirma", "Haz el pedido").
+
+INFORMACIÓN ACTUAL DE LA PLATAFORMA:
+Tiendas y Restaurantes Abiertos:
+${activeStoresList || 'Restaurantes de LinnkPro'}
+
+Catálogo disponible:
+${productsSample || 'Consulta mediante herramientas.'}
+
+Carrito actual:
+${cartItemsSummary}
+
+Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+
+  // Append history
+  if (history && history.length > 0) {
+    for (const h of history.slice(-6)) {
+      const text = h.parts?.map((p: any) => p.text).join(' ').trim();
+      if (text) {
+        messages.push({
+          role: h.role === 'model' ? 'assistant' : 'user',
+          content: text
+        });
+      }
+    }
+  }
+
+  // Current user message
+  messages.push({ role: 'user', content: userMessage });
+
+  const executedActions: any[] = [];
+  let responseText = '';
+
+  let completion: any = null;
+  let lastOpenAIError: any = null;
+
+  try {
+    const candidateModels = ['gpt-4o-mini', 'gpt-4o'];
+
+    for (const model of candidateModels) {
+      try {
+        completion = await openai.chat.completions.create({
+          model,
+          messages,
+          tools: openAITools,
+          tool_choice: 'auto',
+          temperature: 0.7,
+          max_tokens: 300
+        });
+        if (completion && completion.choices?.[0]?.message) {
+          break;
+        }
+      } catch (mErr: any) {
+        lastOpenAIError = mErr;
+        // If quota/rate limit error (429), avoid trying next OpenAI model since whole account has no credits
+        if (mErr?.status === 429 || mErr?.code === 'insufficient_quota' || mErr?.message?.includes('credits') || mErr?.message?.includes('429')) {
+          throw mErr;
+        }
+      }
+    }
+
+    if (!completion || !completion.choices?.[0]?.message) {
+      if (lastOpenAIError) {
+        throw lastOpenAIError;
+      }
+      throw new Error("No OpenAI completion choices available");
+    }
+
+    const message = completion.choices[0].message;
+
+    // If ChatGPT decided to call tools
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      const toolMessages: any[] = [...messages, message];
+
+      for (const toolCall of message.tool_calls) {
+        const funcName = toolCall.function.name;
+        let args: any = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments || '{}');
+        } catch (e) {}
+
+        const toolRes = executeAssistantToolCall(funcName, args, {
+          products,
+          stores,
+          cart,
+          deliveryFee,
+          recentOrders
+        });
+
+        if (toolRes.action) {
+          executedActions.push(toolRes.action);
+        }
+
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: toolRes.resultText || 'Ejecutado con éxito.'
+        });
+      }
+
+      // Ask ChatGPT for final natural conversational voice reply given the tool results
+      try {
+        const secondCompletion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: toolMessages,
+          temperature: 0.7,
+          max_tokens: 250
+        });
+        responseText = secondCompletion.choices?.[0]?.message?.content || '';
+      } catch (err) {
+        console.warn("Second completion for ChatGPT tools failed:", err);
+      }
+    } else {
+      responseText = message.content || '';
+    }
+
+    if (!responseText) {
+      responseText = message.content || '';
+    }
+  } catch (err: any) {
+    if (err?.status === 429 || err?.code === 'insufficient_quota' || err?.message?.includes('credits') || err?.message?.includes('429')) {
+      // Re-throw so the server router can immediately switch to Gemini
+      throw err;
+    }
+    console.warn("OpenAI ChatGPT execution warning:", err?.message || err);
+    return handleLocalHeuristicResponse(userMessage, products, stores, cart, deliveryFee);
+  }
+
+  if (!responseText) {
+    const heuristic = handleLocalHeuristicResponse(userMessage, products, stores, cart, deliveryFee);
+    return { ...heuristic, engine: 'chatgpt_heuristic' };
+  }
+
+  const speechText = responseText
+    .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
+    .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
+    .replace(/\$/g, '')
+    .replace(/\bd[oó]lares\b/gi, 'pesos')
+    .replace(/\bd[oó]lar\b/gi, 'peso')
+    .replace(/[*_#`~]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
+    .replace(/([0-9]+)\.500\s*pesos/gi, '$1 mil quinientos pesos')
+    .trim();
+
+  return {
+    text: responseText,
+    speechText,
+    actions: executedActions,
+    engine: 'chatgpt'
+  };
+}
+
+export const DEFAULT_PLATFORM_STORES: CatalogStore[] = [];
+
+export const DEFAULT_PLATFORM_PRODUCTS: CatalogProduct[] = [];
+
+export async function processVoiceAssistantMessage(
+  ai: GoogleGenAI,
+  userMessage: string,
+  history: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [],
+  context: VoiceAssistantContext
+) {
+  let { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
+
+  // Filter only currently open stores and their active products
+  let openStores = stores.filter(s => !s.isClosed);
+  if (openStores.length === 0 && stores.length > 0) {
+    openStores = stores;
+  }
+
+  // If stores list was empty but products are provided with storeName/userId/storeUsername, infer and populate them!
+  if (openStores.length === 0 && products.length > 0) {
+    const storeMap = new Map<string, any>();
+    products.forEach(p => {
+      if (p.active !== false) {
+        const sKey = p.userId || p.storeUsername || p.storeName || 'tienda';
+        if (!storeMap.has(sKey)) {
+          storeMap.set(sKey, {
+            uid: p.userId || sKey,
+            username: p.storeUsername || sKey,
+            displayName: p.storeName || p.storeUsername || 'Restaurante',
+            bio: 'Restaurante y tienda oficial en LinnkPro',
+            isClosed: false
+          });
+        }
+      }
+    });
+    openStores = Array.from(storeMap.values());
+  }
+
+  const openStoreUids = new Set<string>();
+  openStores.forEach(s => {
+    if (s.uid) openStoreUids.add(s.uid);
+    if (s.username) openStoreUids.add(s.username.toLowerCase());
+    if (s.displayName) openStoreUids.add(s.displayName.toLowerCase());
+  });
+
+  const openProducts = products.filter(p => {
+    if (p.active === false) return false;
+    if (openStores.length === 0) return true;
+    if (!p.userId && !p.storeUsername && !p.storeName) return true;
+    return (
+      (p.userId && openStoreUids.has(p.userId)) ||
+      (p.storeUsername && openStoreUids.has(p.storeUsername.toLowerCase())) ||
+      (p.storeName && openStoreUids.has(p.storeName.toLowerCase())) ||
+      openStoreUids.size === 0
+    );
+  });
+
+  // Ensure all downstream tool invocations and heuristics operate on open catalog
   products = openProducts;
   stores = openStores;
 
@@ -357,8 +1115,8 @@ export async function processVoiceAssistantMessage(
     ? cart.map(c => `- ${c.quantity}x ${c.name} (${(c.price * c.quantity).toLocaleString('es-CO')} pesos)`).join('\n')
     : 'El carrito está actualmente vacío.';
 
-  const systemInstruction = `Eres "LinnkPro", la asistente virtual por voz de LinnkPro.Store. Hablas con una voz cálida, humana, amable y natural, con acento cordial colombiano.
-Tu propósito es ayudar a los clientes a elegir platos deliciosos, responder sus dudas y tomar sus pedidos de manera fluida y conversacional.
+  const systemInstruction = `Eres "IAMesero" (iamesero), el mesero y asistente virtual por voz de LinnkPro.Store. Hablas con una voz cálida, humana, amable y natural, con acento cordial colombiano.
+Tu propósito es atender a los clientes en su mesa o domicilio, recomendar platos deliciosos de los restaurantes disponibles, responder dudas y tomar sus pedidos de manera fluida y conversacional.
 
 ESTILO DE VOZ Y CONVERSACIÓN HUMANA:
 - Habla como una persona real: amable, atenta, espontánea y con calidez ("¡Hola! Qué gusto saludarte", "¡Con mucho gusto!", "Te cuento que tenemos...", "¡Quedó listo en tu carrito!").
@@ -366,15 +1124,16 @@ ESTILO DE VOZ Y CONVERSACIÓN HUMANA:
 - No uses listas infinitas, viñetas ni símbolos raros que suenen robóticos al hablarse. Menciona 2 o 3 opciones destacadas y pregunta al usuario cuál prefiere.
 
 REGLAS FUNDAMENTALES Y OBLIGATORIAS:
-1. SOLO PRODUCTOS DE TIENDAS ABIERTAS (ESTRICTO):
-   - Solo debes indicar, recomendar y agregar productos pertenecientes a las tiendas y restaurantes que se encuentren ABIERTOS en este momento.
-   - NUNCA ofrezcas ni menciones platos o productos de tiendas cerradas.
+1. DISPONIBILIDAD DE TIENDAS Y RESTAURANTES:
+   - Tienes acceso a los restaurantes y tiendas activas en la lista inferior.
+   - Si el usuario pregunta qué restaurantes o tiendas están abiertos, responde con entusiasmo mencionando los nombres de los restaurantes disponibles (por ejemplo: "${openStores.map(s => s.displayName).slice(0, 3).join(', ') || 'nuestros restaurantes afiliados'}") y pregúntale qué se le antoja comer hoy.
+   - Si hay productos o tiendas disponibles, NUNCA digas que no hay restaurantes abiertos.
 2. MONEDA Y PRECIOS (ESTRICTO):
    - La moneda oficial es PESOS COLOMBIANOS (COP).
    - NUNCA uses el símbolo de dólar '$' ni digas la palabra 'dólares'.
    - Siempre di y escribe la palabra 'pesos' (por ejemplo: "cuesta doce mil pesos", "25.000 pesos", "por solo quince mil pesos").
 3. NUNCA inventes productos, restaurantes, precios ni pedidos. Utiliza SIEMPRE las funciones/herramientas provistas para consultar los datos reales de la plataforma.
-4. Si el usuario pide algo genérico como "Quiero una hamburguesa" o "¿Qué hay de comer?", usa 'search_products_and_stores' para encontrar opciones de tiendas abiertas, responde mencionando los platos reales y sus precios exactos en pesos, y ofrécele agregarlos a su carrito.
+4. Si el usuario pide algo genérico como "Quiero una hamburguesa", "¿Qué hay de comer?" o "¿Qué restaurantes hay abiertos?", usa las herramientas para encontrar opciones reales, responde mencionando los platos y precios exactos en pesos, y ofrécele agregarlos a su carrito.
 5. Si el usuario te pide agregar al carrito ("agrega una", "quiero 2 hamburguesas"), llama a 'add_to_cart'.
 6. Si el usuario pregunta qué tiene en el carrito, llama a 'get_cart'.
 7. Para realizar un pedido:
@@ -385,7 +1144,7 @@ REGLAS FUNDAMENTALES Y OBLIGATORIAS:
 
 INFORMACIÓN ACTUAL DE LA PLATAFORMA:
 Tiendas y Restaurantes Abiertos:
-${activeStoresList || 'Sin tiendas abiertas en este momento.'}
+${activeStoresList || 'Restaurantes de LinnkPro'}
 
 Catálogo disponible de tiendas abiertas:
 ${productsSample || 'Consulta mediante herramientas.'}
@@ -432,8 +1191,13 @@ Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
     });
   }
 
-  // Prioritize production-ready text and function-calling models
-  const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest'];
+  // Prioritize stable production models with immediate fallback on 503 (high demand) or 429 (rate limits)
+  const candidateModels = [
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.7-flash',
+    'gemini-3.1-pro-preview'
+  ];
   let response: any = null;
   let lastError: any = null;
 
@@ -448,20 +1212,22 @@ Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
           temperature: 0.7,
         }
       });
-      if (response) break;
+      if (response && response.text) break;
     } catch (err: any) {
       lastError = err;
-      console.warn(`Voice assistant model ${modelName} error:`, err?.message || err);
-      // Brief pause if rate limit
-      const isRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota');
-      if (isRateLimit) {
-        await new Promise(r => setTimeout(r, 100));
+      const isUnavailable = err?.status === 503 || err?.code === 503 || err?.message?.includes('503') || err?.message?.includes('high demand') || err?.message?.includes('UNAVAILABLE');
+      const isRateLimit = err?.status === 429 || err?.code === 429 || err?.message?.includes('429') || err?.message?.includes('quota');
+      
+      if (isUnavailable || isRateLimit) {
+        console.warn(`Voice assistant model ${modelName} temporarily busy (${isUnavailable ? '503 High Demand' : '429 Rate Limit'}). Switching immediately to next available model...`);
+      } else {
+        console.warn(`Voice assistant model ${modelName} error:`, err?.message || err);
       }
     }
   }
 
-  // If all remote models hit rate limit (429/503) or failed, do graceful local NLP heuristic handling instantly
-  if (!response) {
+  // If all remote models hit demand peaks (503/429) or failed, do graceful local NLP heuristic handling instantly
+  if (!response || !response.text) {
     return handleLocalHeuristicResponse(userMessage, products, stores, cart, deliveryFee);
   }
 
@@ -526,6 +1292,21 @@ Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
           }
         }
       } 
+      else if (callName === 'list_open_restaurants') {
+        executedActions.push({
+          type: 'OPEN_STORES_LISTED',
+          stores: stores.slice(0, 10)
+        });
+
+        if (!responseText) {
+          if (stores.length > 0) {
+            const storeNames = stores.slice(0, 4).map(s => s.displayName).join(', ');
+            responseText = `Tenemos abiertos restaurantes como ${storeNames}. ¿Cuál te gustaría ver o qué se te antoja ordenar?`;
+          } else {
+            responseText = `Puedes consultar nuestras tiendas y productos en la plataforma LinnkPro. ¿Qué deseas ordenar?`;
+          }
+        }
+      }
       else if (callName === 'get_product_details') {
         const term = (args.productIdOrName || '').toLowerCase();
         const found = products.find(p => p.id === args.productIdOrName || p.name.toLowerCase().includes(term));
@@ -765,7 +1546,31 @@ function handleLocalHeuristicResponse(
   cart: any[],
   deliveryFee: number
 ) {
-  const stores = (rawStores || []).filter((s: any) => !s.isClosed);
+  let stores = (rawStores || []).filter((s: any) => !s.isClosed);
+  if (stores.length === 0 && (rawStores || []).length > 0) {
+    stores = rawStores;
+  }
+
+  // If stores list was empty but products are provided, infer open stores
+  if (stores.length === 0 && (rawProducts || []).length > 0) {
+    const storeMap = new Map<string, any>();
+    (rawProducts || []).forEach((p: any) => {
+      if (p.active !== false) {
+        const sKey = p.userId || p.storeUsername || p.storeName || 'tienda';
+        if (!storeMap.has(sKey)) {
+          storeMap.set(sKey, {
+            uid: p.userId || sKey,
+            username: p.storeUsername || sKey,
+            displayName: p.storeName || p.storeUsername || 'Restaurante',
+            bio: 'Restaurante y tienda oficial en LinnkPro',
+            isClosed: false
+          });
+        }
+      }
+    });
+    stores = Array.from(storeMap.values());
+  }
+
   const openStoreUids = new Set<string>();
   stores.forEach((s: any) => {
     if (s.uid) openStoreUids.add(s.uid);
@@ -789,8 +1594,27 @@ function handleLocalHeuristicResponse(
   const executedActions: any[] = [];
   let responseText = '';
 
+  // 0. Query about open restaurants or stores
+  if (
+    (lower.includes('restaurante') || lower.includes('tienda') || lower.includes('local') || lower.includes('negocio') || lower.includes('lugar')) &&
+    (lower.includes('abierto') || lower.includes('hay') || lower.includes('cuales') || lower.includes('cuáles') || lower.includes('disponible') || lower.includes('lista') || lower.includes('ver') || lower.includes('mostrar') || lower.includes('abiertos'))
+  ) {
+    executedActions.push({
+      type: 'OPEN_STORES_LISTED',
+      stores: stores.slice(0, 8)
+    });
+    if (stores.length > 0) {
+      const topStores = stores.slice(0, 4).map((s: any) => s.displayName).join(', ');
+      responseText = `Actualmente tenemos abiertos restaurantes como: ${topStores}. ¿Deseas ver el menú de alguno o te gustaría ordenar algo en particular?`;
+    } else if (products.length > 0) {
+      const topProds = products.slice(0, 3).map((p: any) => `${p.name} en ${p.storeName || 'nuestra tienda'}`).join(', ');
+      responseText = `Tenemos deliciosos platos listos para ti como: ${topProds}. ¿Te gustaría que agregue alguno a tu pedido?`;
+    } else {
+      responseText = `Tenemos varios restaurantes afiliados en LinnkPro. ¿Qué te gustaría comer hoy?`;
+    }
+  }
   // 1. Check cart request
-  if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
+  else if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
     const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
     executedActions.push({

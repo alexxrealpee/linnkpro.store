@@ -35,7 +35,8 @@ import {
   AudioWaveform,
   AudioLines,
   Check,
-  Loader2
+  Loader2,
+  ConciergeBell
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
 import { 
@@ -57,6 +58,7 @@ import {
   GeneralCartItem, 
   CART_UPDATED_EVENT 
 } from '../lib/cartHelper';
+import { RealtimeMeseroManager } from '../lib/realtimeMeseroAgent';
 
 interface LinnkProVoiceAssistantProps {
   onNavigateToStore?: (username: string) => void;
@@ -102,7 +104,7 @@ export default function LinnkProVoiceAssistant({
     {
       id: 'welcome',
       sender: 'assistant',
-      text: `¡Hola! 👋 Soy tu Mesero IA 🤖🍽️\n\nPuedes hablar conmigo para buscar platos, consultar menús, revisar tu carrito y hacer tu pedido, todo de forma rápida y sencilla.\n\n🎙️ Solo dime qué quieres comer y yo me encargo del resto.`,
+      text: `¡Hola! 👋 Soy IAMesero 🤖🍽️\n\nPuedes hablar conmigo por voz o texto para consultar restaurantes abiertos, elegir tus platos favoritos, armar tu carrito y confirmar tu pedido.\n\n🎙️ Solo dime qué se te antoja comer hoy y yo me encargo de todo.`,
       timestamp: new Date()
     }
   ]);
@@ -132,6 +134,7 @@ export default function LinnkProVoiceAssistant({
   const isMicMutedRef = useRef<boolean>(false);
   const listeningModeRef = useRef<'continuous' | 'push_to_talk'>('continuous');
   const lastRestartTimeRef = useRef<number>(0);
+  const realtimeManagerRef = useRef<RealtimeMeseroManager | null>(null);
 
   // Helper to detect mobile device
   const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -186,7 +189,7 @@ export default function LinnkProVoiceAssistant({
 
       if (catalogData && catalogData.products) {
         const profiles = catalogData.profiles || {};
-        const onlyOpenProducts = catalogData.products.filter(p => {
+        let onlyOpenProducts = catalogData.products.filter(p => {
           if (p.active === false) return false;
           const store = findStoreForProduct(p, profiles);
           if (store) {
@@ -194,6 +197,12 @@ export default function LinnkProVoiceAssistant({
           }
           return true;
         });
+
+        // Fallback: if all products were filtered out, keep all active products
+        if (onlyOpenProducts.length === 0 && catalogData.products.length > 0) {
+          onlyOpenProducts = catalogData.products.filter(p => p.active !== false);
+        }
+
         setCatalogProducts(onlyOpenProducts);
         setCatalogStores(profiles);
       }
@@ -453,9 +462,50 @@ export default function LinnkProVoiceAssistant({
 
     stopAudioPlayback();
     initAudioAnalyser();
-    setTimeout(() => {
-      safeStartRecognition();
-    }, 150);
+
+    // Try OpenAI Realtime WebRTC session
+    try {
+      if (!realtimeManagerRef.current) {
+        realtimeManagerRef.current = new RealtimeMeseroManager({
+          onStateChange: (state) => {
+            setAssistantState(state);
+            assistantStateRef.current = state;
+          },
+          onTranscriptDelta: (text, isFinal, sender) => {
+            if (sender === 'user') {
+              setTranscript(text);
+              if (isFinal) {
+                setMessages(prev => [
+                  ...prev,
+                  { id: 'usr_' + Date.now(), sender: 'user', text, timestamp: new Date() }
+                ]);
+              }
+            } else {
+              setTranscript(text);
+              if (isFinal) {
+                setMessages(prev => [
+                  ...prev,
+                  { id: 'asst_' + Date.now(), sender: 'assistant', text, timestamp: new Date() }
+                ]);
+              }
+            }
+          },
+          onCartUpdated: (updatedCart) => {
+            setCart(updatedCart);
+          },
+          onError: (err) => {
+            console.warn("Realtime WebRTC connection notice, fallback voice active:", err);
+          }
+        });
+      }
+
+      await realtimeManagerRef.current.start();
+    } catch (realtimeErr) {
+      console.info("Falling back to standard streaming voice assistant engine:", realtimeErr);
+      setTimeout(() => {
+        safeStartRecognition();
+      }, 150);
+    }
   };
 
   const endVoiceCall = () => {
@@ -465,6 +515,10 @@ export default function LinnkProVoiceAssistant({
     setTranscript('');
     latestTranscriptRef.current = '';
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+    if (realtimeManagerRef.current) {
+      realtimeManagerRef.current.stop();
+    }
 
     stopAudioPlayback();
     stopAudioAnalyser();
@@ -519,8 +573,8 @@ export default function LinnkProVoiceAssistant({
     }, 150);
   };
 
-  // 9. Play audio response with PCM Web Audio or Web Speech API
-  const playVoiceResponse = async (text: string, pcmBase64?: string) => {
+  // 9. Play audio response with Web Audio (MP3/PCM) or Web Speech API
+  const playVoiceResponse = async (text: string, audioBase64?: string) => {
     if (isVoiceMuted) {
       if (isInVoiceCallRef.current) {
         setAssistantState('listening');
@@ -558,43 +612,57 @@ export default function LinnkProVoiceAssistant({
       }
     };
 
-    if (pcmBase64) {
+    if (audioBase64) {
       try {
-        const binaryString = atob(pcmBase64);
+        const binaryString = atob(audioBase64);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
 
-        const int16Array = new Int16Array(bytes.buffer);
-        const float32Array = new Float32Array(int16Array.length);
-        for (let i = 0; i < int16Array.length; i++) {
-          float32Array[i] = int16Array[i] / 32768;
-        }
-
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!audioContextRef.current) {
-          audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
+          audioContextRef.current = new AudioContextClass();
         }
         const ctx = audioContextRef.current;
         if (ctx.state === 'suspended') {
           await ctx.resume();
         }
 
-        const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
-        audioBuffer.getChannelData(0).set(float32Array);
+        let audioBuffer: AudioBuffer | null = null;
 
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(ctx.destination);
-        currentAudioSourceRef.current = source;
+        // 1. Try browser native decodeAudioData (decodes OpenAI MP3, WAV, AAC)
+        try {
+          const bufferCopy = bytes.buffer.slice(0);
+          audioBuffer = await ctx.decodeAudioData(bufferCopy);
+        } catch (decodeErr) {
+          // 2. Fallback to Gemini 24kHz raw PCM decoding
+          try {
+            const int16Array = new Int16Array(bytes.buffer);
+            const float32Array = new Float32Array(int16Array.length);
+            for (let i = 0; i < int16Array.length; i++) {
+              float32Array[i] = int16Array[i] / 32768;
+            }
+            audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
+            audioBuffer.getChannelData(0).set(float32Array);
+          } catch (pcmErr) {
+            audioBuffer = null;
+          }
+        }
 
-        source.onended = onSpeechComplete;
-        source.start();
-        return;
+        if (audioBuffer) {
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          currentAudioSourceRef.current = source;
+
+          source.onended = onSpeechComplete;
+          source.start();
+          return;
+        }
       } catch (err) {
-        console.warn("PCM audio playback error, falling back to Web Speech API:", err);
+        console.warn("Audio playback error, falling back to Web Speech API:", err);
       }
     }
 
@@ -693,7 +761,7 @@ export default function LinnkProVoiceAssistant({
     const executedActions: any[] = [];
     let responseText = '';
 
-    const activeProducts = products.filter(p => {
+    let activeProducts = products.filter(p => {
       if (p.active === false) return false;
       const store = findStoreForProduct(p, stores);
       if (store) {
@@ -701,9 +769,35 @@ export default function LinnkProVoiceAssistant({
       }
       return true;
     });
+    if (activeProducts.length === 0 && products.length > 0) {
+      activeProducts = products.filter(p => p.active !== false);
+    }
 
+    // 0. Query about open stores or restaurants
+    if (
+      (lower.includes('tienda') || lower.includes('tiendas') || lower.includes('restaurante') || lower.includes('restaurantes') || lower.includes('local') || lower.includes('locales') || lower.includes('negocio') || lower.includes('negocios')) &&
+      (lower.includes('abiert') || lower.includes('hay') || lower.includes('cuales') || lower.includes('cuáles') || lower.includes('disponible') || lower.includes('ver') || lower.includes('mostrar') || lower.includes('lista'))
+    ) {
+      const storeList = Object.values(stores).filter(s => s && !s.suspended);
+      const safeStores = storeList.length > 0 ? storeList : [];
+      const storeNames = safeStores.slice(0, 5).map(s => s.displayName || s.username).join(', ');
+
+      executedActions.push({
+        type: 'OPEN_STORES_LISTED',
+        stores: safeStores.slice(0, 10)
+      });
+
+      if (safeStores.length > 0) {
+        responseText = `¡Sí, claro! Tenemos abiertos y disponibles los siguientes restaurantes y tiendas: ${storeNames}. ¿Qué se te antoja ordenar hoy?`;
+      } else if (activeProducts.length > 0) {
+        const topProds = activeProducts.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ');
+        responseText = `Tenemos deliciosos platos listos para ti como: ${topProds}. ¿Te gustaría que agregue alguno a tu pedido?`;
+      } else {
+        responseText = `Nuestros restaurantes afiliados están listos para atenderte. ¿Qué te gustaría ordenar hoy?`;
+      }
+    }
     // 1. Check cart request
-    if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
+    else if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
       const totalAmount = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
       const itemCount = currentCart.reduce((sum, item) => sum + item.quantity, 0);
       executedActions.push({
@@ -852,32 +946,70 @@ export default function LinnkProVoiceAssistant({
     setAssistantState('processing');
 
     try {
-      // Build catalog context with real data (ONLY open stores and active products)
-      const allStoresList = Array.from(new Set(Object.values(catalogStores) as UserProfile[]));
-      const openStoresList = allStoresList.filter(s => !checkIsStoreClosed(s) && !s.suspended);
+      // Ensure catalog data is loaded and up to date
+      let currentStores = catalogStores;
+      let currentProducts = catalogProducts;
+      if (currentProducts.length === 0 || Object.keys(currentStores).length === 0) {
+        try {
+          const freshData = await fetchAllActiveProductsAndStores();
+          if (freshData && freshData.products) {
+            currentStores = freshData.profiles || {};
+            currentProducts = freshData.products.filter(p => p.active !== false);
+            setCatalogStores(currentStores);
+            setCatalogProducts(currentProducts);
+          }
+        } catch (e) {}
+      }
 
-      const storesArray = openStoresList.map(s => ({
-        uid: s.uid,
-        username: s.username || '',
-        displayName: s.displayName || s.username || 'Tienda',
-        bio: s.bio || '',
-        address: s.address || '',
-        phone: s.phone || '',
-        whatsapp: s.whatsapp || '',
-        isClosed: false
-      }));
+      // Build catalog context with real data (open stores and active products)
+      const storeMap = new Map<string, any>();
+      (Object.values(currentStores) as UserProfile[]).forEach(s => {
+        if (s && s.uid && !s.suspended && !storeMap.has(s.uid)) {
+          storeMap.set(s.uid, {
+            uid: s.uid,
+            username: s.username || '',
+            displayName: s.displayName || s.username || 'Tienda',
+            bio: s.bio || '',
+            address: s.address || '',
+            phone: s.phone || '',
+            whatsapp: s.whatsapp || '',
+            isClosed: false
+          });
+        }
+      });
 
-      const productsArray = catalogProducts
+      // Also extract and ensure stores for all active products are included
+      currentProducts.forEach(p => {
+        if (p.active !== false) {
+          const store = findStoreForProduct(p, currentStores);
+          if (store && store.uid && !store.suspended && !storeMap.has(store.uid)) {
+            storeMap.set(store.uid, {
+              uid: store.uid,
+              username: store.username || '',
+              displayName: store.displayName || store.username || 'Tienda',
+              bio: store.bio || '',
+              address: store.address || '',
+              phone: store.phone || '',
+              whatsapp: store.whatsapp || '',
+              isClosed: false
+            });
+          }
+        }
+      });
+
+      const storesArray = Array.from(storeMap.values());
+
+      let productsArray = currentProducts
         .filter(p => {
           if (p.active === false) return false;
-          const store = findStoreForProduct(p, catalogStores);
+          const store = findStoreForProduct(p, currentStores);
           if (store) {
             return !checkIsStoreClosed(store) && !store.suspended;
           }
           return true;
         })
         .map(p => {
-          const store = findStoreForProduct(p, catalogStores);
+          const store = findStoreForProduct(p, currentStores);
           return {
             id: p.id,
             userId: p.userId || store?.uid || '',
@@ -886,13 +1018,31 @@ export default function LinnkProVoiceAssistant({
             price: p.price,
             stock: p.stock,
             category: p.category || 'General',
-            // Omit heavy data URLs to keep payload ultra light and fast
             imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
             storeName: store?.displayName || 'Tienda',
             storeUsername: store?.username || '',
             active: p.active
           };
         });
+
+      if (productsArray.length === 0 && currentProducts.length > 0) {
+        productsArray = currentProducts.filter(p => p.active !== false).map(p => {
+          const store = findStoreForProduct(p, currentStores);
+          return {
+            id: p.id,
+            userId: p.userId || store?.uid || '',
+            name: p.name,
+            description: p.description || '',
+            price: p.price,
+            stock: p.stock,
+            category: p.category || 'General',
+            imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
+            storeName: store?.displayName || 'Tienda',
+            storeUsername: store?.username || '',
+            active: p.active
+          };
+        });
+      }
 
       const currentCart = getStoredCart();
       const cartPayload = currentCart.map(c => ({
@@ -1155,32 +1305,34 @@ export default function LinnkProVoiceAssistant({
               setIsOpen(false);
             }
           }}
-          className={`group relative flex items-center gap-2 px-3.5 py-2.5 rounded-full shadow-2xl transition-all duration-300 transform active:scale-95 border ${
+          className={`group relative flex items-center gap-2 px-3.5 py-2 rounded-full shadow-2xl transition-all duration-300 transform active:scale-95 border ${
             isInVoiceCall
-              ? 'bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] text-white border-[#E63946] ring-4 ring-[#E63946]/30 animate-pulse'
-              : 'bg-[#090B12]/95 hover:bg-[#111827] text-white border-[#E63946]/40 hover:border-[#E63946] shadow-2xl shadow-red-950/60 hover:scale-105'
+              ? 'bg-[#EF4444] text-white border-red-400 ring-4 ring-red-500/30 animate-pulse'
+              : 'bg-[#0B0F19]/95 hover:bg-[#131926] text-white border-red-500/40 hover:border-red-500 shadow-2xl shadow-red-950/60 hover:scale-105'
           }`}
-          aria-label="Hablar con Mesero IA"
+          aria-label="Hablar con IAMesero"
         >
           {/* Animated Glow Ring */}
-          <span className="absolute -inset-1 rounded-full bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] opacity-35 blur group-hover:opacity-75 transition duration-500"></span>
+          <span className="absolute -inset-1 rounded-full bg-red-600 opacity-30 blur group-hover:opacity-60 transition duration-500"></span>
 
           <div className="relative flex items-center justify-center">
             {isInVoiceCall ? (
               <div className="relative flex items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F4B400] opacity-75"></span>
-                <PhoneCall className="w-5 h-5 text-white animate-pulse" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <PhoneCall className="w-4 h-4 text-white animate-pulse" />
               </div>
             ) : (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#E63946] to-[#F4B400] flex items-center justify-center shadow-md relative">
-                <AudioLines className="w-4 h-4 text-white" />
-                <Sparkles className="w-2.5 h-2.5 text-amber-200 absolute -top-0.5 -right-0.5 fill-amber-200" />
+              <div className="w-7 h-7 rounded-xl bg-[#EF4444] flex items-center justify-center shadow-md relative">
+                <ConciergeBell className="w-3.5 h-3.5 text-white" />
               </div>
             )}
           </div>
 
-          <span className="relative text-sm font-black tracking-wider uppercase text-white pr-1">
-            IA
+          <span className="relative text-xs font-bold tracking-tight text-white pr-1 flex items-center gap-1.5">
+            IAMesero
+            <span className="px-1.5 py-0.2 bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 text-[9px] font-semibold rounded-full">
+              ChatGPT
+            </span>
           </span>
         </button>
       </div>
@@ -1205,16 +1357,27 @@ export default function LinnkProVoiceAssistant({
               className="w-full sm:w-[480px] h-[92vh] sm:h-[680px] max-h-[95vh] bg-[#090B12] border border-[#E63946]/40 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-gray-100 relative"
             >
               {/* Top Header Bar */}
-              <div className="px-4 py-3 bg-[#0D111D]/95 border-b border-[#232B3A] flex items-center justify-between z-10 backdrop-blur">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#E63946] flex items-center justify-center text-white shadow-md">
-                    <Sparkles className="w-4 h-4 text-white" />
+              <div className="px-5 py-4 bg-[#0B0F19] border-b border-slate-800/80 flex items-center justify-between z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#EF4444] flex items-center justify-center text-white shadow-lg shadow-red-500/30 flex-shrink-0">
+                    <ConciergeBell className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white leading-none">
+                        IAMesero
+                      </h3>
+                      <span className="px-2.5 py-0.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 text-[11px] font-semibold rounded-full">
+                        ChatGPT
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">Mesero Virtual IA por Voz</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  {/* View Mode Switcher (Call vs Chat) */}
-                  <div className="bg-[#111827] p-0.5 rounded-xl border border-[#232B3A] flex items-center">
+                <div className="flex items-center gap-2">
+                  {/* View Mode Switcher (Voz vs Chat) */}
+                  <div className="bg-[#131926]/90 p-1 rounded-full border border-slate-800 flex items-center">
                     <button
                       onClick={() => {
                         setActiveTab('call');
@@ -1222,13 +1385,13 @@ export default function LinnkProVoiceAssistant({
                           startVoiceCall();
                         }
                       }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 ${
                         activeTab === 'call' 
-                          ? 'bg-[#E63946] text-white shadow-md' 
-                          : 'text-[#A9B2C3] hover:text-white'
+                          ? 'bg-[#EF4444] text-white shadow-sm' 
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      <Radio className="w-3 h-3" />
+                      <Radio className="w-3.5 h-3.5" />
                       Voz
                     </button>
                     <button
@@ -1236,13 +1399,13 @@ export default function LinnkProVoiceAssistant({
                         endVoiceCall();
                         setActiveTab('chat');
                       }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 ${
                         activeTab === 'chat' 
-                          ? 'bg-[#E63946] text-white shadow-md' 
-                          : 'text-[#A9B2C3] hover:text-white'
+                          ? 'bg-[#EF4444] text-white shadow-sm' 
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      <MessageSquare className="w-3 h-3" />
+                      <MessageSquare className="w-3.5 h-3.5" />
                       Chat
                     </button>
                   </div>
@@ -1252,7 +1415,7 @@ export default function LinnkProVoiceAssistant({
                     onClick={() => {
                       setIsOpen(false);
                     }}
-                    className="p-2 rounded-xl text-[#A9B2C3] hover:text-white hover:bg-[#111827] transition"
+                    className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800/60 transition"
                     title="Minimizar ventana"
                   >
                     <ChevronDown className="w-5 h-5" />
@@ -1262,178 +1425,123 @@ export default function LinnkProVoiceAssistant({
 
               {/* VIEW 1: IMMERSIVE REAL-TIME VOICE CALL STAGE */}
               {activeTab === 'call' && (
-                <div className="flex-1 flex flex-col justify-between p-4 overflow-y-auto relative bg-[#090B12]">
-                  {/* Background Radial Glow matching LinnkPro Store */}
+                <div className="flex-1 flex flex-col justify-between p-4 sm:p-6 overflow-y-auto relative bg-[#0B0F19]">
+                  {/* Background Subtle Radial Glow */}
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className={`w-80 h-80 rounded-full blur-[90px] transition-all duration-700 opacity-25 ${
+                    <div className={`w-80 h-80 rounded-full blur-[100px] transition-all duration-700 opacity-20 ${
                       assistantState === 'listening'
-                        ? 'bg-[#E63946] scale-110'
+                        ? 'bg-[#EF4444] scale-110'
                         : assistantState === 'speaking'
-                        ? 'bg-[#F4B400] scale-125'
+                        ? 'bg-[#EF4444] scale-125'
                         : assistantState === 'processing'
-                        ? 'bg-[#E63946]/70 scale-100'
-                        : 'bg-[#E63946]/20'
+                        ? 'bg-[#EF4444]/70 scale-100'
+                        : 'bg-[#EF4444]/20'
                     }`}></div>
                   </div>
 
-                  {/* 1. Status Indicator Pill & Listening Mode Switcher */}
-                  <div className="flex flex-col items-center justify-center z-10 pt-1 gap-2">
-                    <div className="px-4 py-1.5 rounded-full bg-[#0D111D]/90 border border-[#232B3A] text-xs font-semibold flex items-center gap-2 shadow-xl backdrop-blur">
-                      <Mic className={`w-3.5 h-3.5 ${assistantState === 'listening' ? 'text-[#E63946] animate-pulse' : 'text-gray-400'}`} />
-                      <span className="text-gray-200">
-                        {assistantState === 'listening' ? (listeningMode === 'continuous' ? 'Escuchando... habla con libertad' : 'Micrófono listo • Toca para hablar') :
-                         assistantState === 'speaking' ? 'LinnkPro respondiendo...' :
-                         assistantState === 'processing' ? 'Procesando tu pedido...' :
-                         'En espera'}
-                      </span>
-                      {assistantState === 'listening' && (
-                        <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping ml-0.5"></span>
-                      )}
-                    </div>
+                  {/* 1. Header Title & Mode Subtitle */}
+                  <div className="flex flex-col items-center justify-center z-10 pt-2 text-center">
+                    <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                      {assistantState === 'listening' 
+                        ? (transcript ? `"${transcript}"` : 'Escuchando... habla con libertad')
+                        : assistantState === 'speaking' 
+                        ? 'IAMesero te está respondiendo...'
+                        : assistantState === 'processing'
+                        ? 'Procesando tu solicitud...'
+                        : 'En llamada con IAMesero'}
+                    </h2>
 
-                    {/* Mode selector pill: Manos libres vs Pulsar para hablar */}
-                    <div className="inline-flex p-0.5 rounded-full bg-[#0D111D] border border-[#232B3A] text-[11px] shadow">
+                    <div className="flex items-center gap-2 mt-1.5 text-xs">
                       <button
                         onClick={() => {
-                          setListeningMode('continuous');
-                          if (isInVoiceCall && !isSpeakingRef.current && !isMicMuted) {
-                            safeStartRecognition();
-                          }
+                          setListeningMode(prev => prev === 'continuous' ? 'push_to_talk' : 'continuous');
                         }}
-                        className={`px-3 py-0.5 rounded-full font-medium transition ${
-                          listeningMode === 'continuous'
-                            ? 'bg-[#E63946] text-white shadow-sm font-bold'
-                            : 'text-gray-400 hover:text-white'
-                        }`}
+                        className="flex items-center gap-1 text-red-500 hover:text-red-400 font-medium transition cursor-pointer"
                       >
-                        🎙️ Manos libres
+                        <Mic className="w-3.5 h-3.5 text-red-500" />
+                        <span>Manos libres</span>
                       </button>
+                      <span className="text-slate-600">•</span>
                       <button
                         onClick={() => {
-                          setListeningMode('push_to_talk');
+                          setListeningMode(prev => prev === 'push_to_talk' ? 'continuous' : 'push_to_talk');
                         }}
-                        className={`px-3 py-0.5 rounded-full font-medium transition ${
-                          listeningMode === 'push_to_talk'
-                            ? 'bg-[#E63946] text-white shadow-sm font-bold'
-                            : 'text-gray-400 hover:text-white'
-                        }`}
+                        className={`transition cursor-pointer ${listeningMode === 'push_to_talk' ? 'text-red-400 font-semibold' : 'text-slate-400 hover:text-white'}`}
                       >
-                        👆 Pulsar para hablar
+                        Pulsa para hablar
                       </button>
                     </div>
                   </div>
 
-                  {/* Mobile Mic Permission / Device Notice */}
+                  {/* Mobile Mic Permission Notice if any */}
                   {micPermissionError && (
-                    <div className="z-20 my-2 mx-auto max-w-sm bg-rose-950/90 border border-[#E63946] rounded-2xl p-3 text-center shadow-2xl backdrop-blur">
+                    <div className="z-20 my-2 mx-auto max-w-sm bg-rose-950/90 border border-rose-600 rounded-2xl p-3 text-center shadow-2xl backdrop-blur">
                       <p className="text-xs text-rose-200 font-medium leading-relaxed">
                         {micPermissionError}
                       </p>
                       <button
                         onClick={startVoiceCall}
-                        className="mt-2 px-3 py-1 bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold rounded-lg transition"
+                        className="mt-2 px-3 py-1 bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold rounded-lg transition"
                       >
                         🔄 Reintentar conexión de voz
                       </button>
                     </div>
                   )}
 
-                  {/* 2. Central Mic Button with Soundwaves on Sides and Arc Glow Ring */}
-                  <div className="flex flex-col items-center justify-center my-auto py-4 z-10">
-                    <div className="relative flex items-center justify-center gap-4 sm:gap-6">
+                  {/* 2. Central Mic Orb with Soundwave Bars */}
+                  <div className="flex flex-col items-center justify-center my-auto py-6 z-10">
+                    <div className="relative flex items-center justify-center gap-6 sm:gap-10">
                       {/* Left Audio Waveform Bars */}
-                      <div className="flex items-center gap-1.5 opacity-40">
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-14 bg-[#E63946]' : 'h-8'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-16 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-12 bg-red-500' : 'h-9 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
                       </div>
 
-                      {/* Main Interactive Mic Button with Arc and Red Radial Glow */}
+                      {/* Concentric Orb with Central Red Mic Button */}
                       <div className="relative flex items-center justify-center">
-                        {/* Outer Arc Highlight Ring */}
-                        <div className={`absolute -inset-3 rounded-full border-2 border-transparent border-t-[#E63946] border-r-[#E63946]/80 ${assistantState === 'listening' ? 'animate-spin [animation-duration:3s]' : ''} opacity-90`}></div>
-                        <div className="absolute -inset-3 rounded-full border border-red-500/20"></div>
+                        {/* Outermost ring */}
+                        <div className="w-48 h-48 sm:w-52 sm:h-52 rounded-full border border-red-950/60 bg-red-950/20 flex items-center justify-center absolute"></div>
+                        
+                        {/* Middle ring with subtle glow */}
+                        <div className="w-38 h-38 sm:w-42 sm:h-42 rounded-full border border-red-800/40 bg-red-900/30 flex items-center justify-center absolute shadow-[0_0_40px_rgba(239,68,68,0.25)]"></div>
 
-                        {/* Red Radial Ambient Glow */}
-                        <div className={`absolute inset-0 rounded-full bg-[#E63946] blur-xl ${assistantState === 'listening' ? 'opacity-50 animate-pulse' : 'opacity-25'}`}></div>
-
-                        {/* Solid Red Center Mic Button (Interactive Touch/Click) */}
+                        {/* Solid Red Central Circle Button */}
                         <button
                           id="linnkpro-interactive-center-mic"
                           onClick={handleCentralMicClick}
-                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-[#FF3B47] to-[#C1121F] flex items-center justify-center shadow-2xl shadow-red-600/50 relative z-10 active:scale-95 hover:scale-105 transition-transform duration-150 cursor-pointer group focus:outline-none focus:ring-4 focus:ring-red-500/40"
+                          className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-b from-[#EF4444] to-[#DC2626] flex items-center justify-center shadow-2xl shadow-red-600/40 relative z-10 active:scale-95 hover:scale-105 transition-all duration-200 cursor-pointer focus:outline-none focus:ring-4 focus:ring-red-500/30"
                           title={assistantState === 'speaking' ? 'Toca para interrumpir' : transcript ? 'Toca para enviar' : 'Micrófono activo'}
                         >
-                          <Mic className={`w-10 h-10 sm:w-12 sm:h-12 text-white stroke-[2.5] ${assistantState === 'listening' ? 'animate-pulse' : ''}`} />
+                          <Mic className="w-11 h-11 sm:w-12 sm:h-12 text-white stroke-[2.5]" />
                         </button>
                       </div>
 
                       {/* Right Audio Waveform Bars */}
-                      <div className="flex items-center gap-1.5 opacity-40">
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-14 bg-[#E63946]' : 'h-8'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
-                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-16 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-12 bg-red-500' : 'h-9 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
+                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
                       </div>
-                    </div>
-
-                    {/* Live Transcript Bubble */}
-                    <div className="w-full max-w-sm mt-5 px-2 flex flex-col items-center">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0D111D] border border-[#232B3A] text-[11px] font-bold text-gray-300 mb-2">
-                        <span className={`w-2 h-2 rounded-full ${transcript ? 'bg-emerald-400 animate-ping' : 'bg-[#E63946] animate-pulse'}`}></span>
-                        <span>{transcript ? '🟢 Detectando tu voz:' : '🎙️ Micrófono en vivo:'}</span>
-                      </div>
-
-                      <div className="w-full bg-[#0D111D]/90 border border-[#232B3A] rounded-2xl px-4 py-3 text-center shadow-lg">
-                        <p className="text-sm font-medium text-white min-h-[1.5rem] flex items-center justify-center">
-                          {transcript ? (
-                            <span>"{transcript}"</span>
-                          ) : (
-                            <span className="text-gray-400 italic text-xs">
-                              {assistantState === 'speaking' 
-                                ? '🔊 LinnkPro te está respondiendo... (Toca el micro para hablar)' 
-                                : assistantState === 'processing' 
-                                ? '⏳ Pensando tu respuesta...' 
-                                : 'Te escucho... habla o toca el micrófono para enviar.'}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-
-                      {/* Instant Send Badge if transcript detected */}
-                      {transcript.trim() && (
-                        <button
-                          onClick={() => {
-                            const text = transcript.trim();
-                            setTranscript('');
-                            latestTranscriptRef.current = '';
-                            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-                            handleSendMessage(text);
-                          }}
-                          className="mt-2.5 px-4 py-1.5 rounded-full bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold shadow-lg shadow-red-600/30 flex items-center gap-1.5 active:scale-95 transition"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>Enviar ahora</span>
-                        </button>
-                      )}
                     </div>
                   </div>
 
                   {/* 3. Action Cards Pop-up (Cart or Product quick cards during call) */}
                   {lastAssistantMessage?.actionPayload && (
-                    <div className="z-10 mb-2">
+                    <div className="z-10 mb-3">
                       {lastAssistantMessage.actionPayload.type === 'CART_SUMMARY' && (
-                        <div className="bg-[#111827] border border-[#E63946]/40 rounded-2xl p-3 shadow-lg flex items-center justify-between">
+                        <div className="bg-[#111827] border border-red-500/40 rounded-2xl p-3 shadow-lg flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-[#E63946]/20 text-[#E63946] flex items-center justify-center font-bold">
+                            <div className="w-9 h-9 rounded-xl bg-red-500/20 text-red-500 flex items-center justify-center font-bold">
                               <ShoppingBag className="w-5 h-5" />
                             </div>
                             <div>
                               <h4 className="text-xs font-bold text-white">Carrito Actualizado</h4>
-                              <p className="text-[11px] text-[#F4B400] font-bold">
+                              <p className="text-[11px] text-amber-400 font-bold">
                                 {cart.reduce((s, i) => s + i.quantity, 0)} platos • ${cart.reduce((s, i) => s + (i.product.price * i.quantity), 0).toLocaleString('es-CO')} COP
                               </p>
                             </div>
@@ -1443,7 +1551,7 @@ export default function LinnkProVoiceAssistant({
                               endVoiceCall();
                               setActiveTab('chat');
                             }}
-                            className="px-3 py-1.5 rounded-xl bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold transition flex items-center gap-1 shadow-md"
+                            className="px-3 py-1.5 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold transition flex items-center gap-1 shadow-md"
                           >
                             Ver Carrito <ArrowRight className="w-3 h-3" />
                           </button>
@@ -1451,14 +1559,14 @@ export default function LinnkProVoiceAssistant({
                       )}
 
                       {lastAssistantMessage.actionPayload.type === 'ORDER_CONFIRMATION_REQUESTED' && (
-                        <div className="bg-gradient-to-r from-[#1E1418] to-[#111827] border border-[#F4B400]/50 rounded-2xl p-3 shadow-xl flex items-center justify-between">
+                        <div className="bg-gradient-to-r from-[#1E1418] to-[#111827] border border-amber-500/50 rounded-2xl p-3 shadow-xl flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-[#F4B400]/20 text-[#F4B400] flex items-center justify-center font-bold">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
                               <AlertCircle className="w-5 h-5" />
                             </div>
                             <div>
                               <h4 className="text-xs font-bold text-white">Confirmar Pedido</h4>
-                              <p className="text-[11px] text-[#F4B400] font-bold">
+                              <p className="text-[11px] text-amber-400 font-bold">
                                 Total: ${lastAssistantMessage.actionPayload.data.grandTotal?.toLocaleString('es-CO')} COP
                               </p>
                             </div>
@@ -1468,7 +1576,7 @@ export default function LinnkProVoiceAssistant({
                               await handleExecuteOrderCreation(lastAssistantMessage.actionPayload?.data);
                               handleSendMessage("Sí, confirmo mi pedido ahora.");
                             }}
-                            className="px-3 py-1.5 rounded-xl bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold transition shadow-md"
+                            className="px-3 py-1.5 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold transition shadow-md"
                           >
                             Confirmar
                           </button>
@@ -1476,34 +1584,6 @@ export default function LinnkProVoiceAssistant({
                       )}
                     </div>
                   )}
-
-                  {/* 4. Quick Suggestion Pills */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none z-10">
-                    <button
-                      onClick={() => handleSendMessage("Quiero pedir una hamburguesa")}
-                      className="px-3 py-1.5 rounded-full bg-[#111827] hover:bg-[#E63946]/20 hover:border-[#E63946] text-[#A9B2C3] hover:text-white text-xs font-bold border border-[#232B3A] whitespace-nowrap transition"
-                    >
-                      🍔 Pedir hamburguesa
-                    </button>
-                    <button
-                      onClick={() => handleSendMessage("Qué pizzas tienen disponibles?")}
-                      className="px-3 py-1.5 rounded-full bg-[#111827] hover:bg-[#E63946]/20 hover:border-[#E63946] text-[#A9B2C3] hover:text-white text-xs font-bold border border-[#232B3A] whitespace-nowrap transition"
-                    >
-                      🍕 Ver pizzas
-                    </button>
-                    <button
-                      onClick={() => handleSendMessage("Qué hay en mi carrito?")}
-                      className="px-3 py-1.5 rounded-full bg-[#111827] hover:bg-[#E63946]/20 hover:border-[#E63946] text-[#A9B2C3] hover:text-white text-xs font-bold border border-[#232B3A] whitespace-nowrap transition"
-                    >
-                      🛒 Mi carrito
-                    </button>
-                    <button
-                      onClick={() => handleSendMessage("Confirmar mi pedido para entrega")}
-                      className="px-3 py-1.5 rounded-full bg-[#111827] hover:bg-[#E63946]/20 hover:border-[#E63946] text-[#A9B2C3] hover:text-white text-xs font-bold border border-[#232B3A] whitespace-nowrap transition"
-                    >
-                      🛵 Confirmar pedido
-                    </button>
-                  </div>
                 </div>
               )}
 
@@ -1748,7 +1828,7 @@ export default function LinnkProVoiceAssistant({
               )}
 
               {/* BOTTOM CONTROLS BAR */}
-              <div className="p-3.5 sm:p-4 bg-[#0D111D] border-t border-[#232B3A] flex flex-col gap-2.5">
+              <div className="p-4 sm:p-5 bg-[#0B0F19] border-t border-slate-800/80 flex flex-col gap-4">
                 {/* Chat Quick Suggestion Chips (when in chat tab) */}
                 {activeTab === 'chat' && (
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
@@ -1762,7 +1842,7 @@ export default function LinnkProVoiceAssistant({
                       <button
                         key={idx}
                         onClick={() => handleSendMessage(chip.query)}
-                        className="px-2.5 py-1 rounded-full bg-[#161D2C] hover:bg-[#1E293B] text-gray-300 hover:text-white border border-[#232B3A] whitespace-nowrap transition"
+                        className="px-3 py-1 rounded-full bg-[#161D2C] hover:bg-[#1E293B] text-gray-300 hover:text-white border border-slate-800 whitespace-nowrap transition"
                       >
                         {chip.label}
                       </button>
@@ -1770,9 +1850,10 @@ export default function LinnkProVoiceAssistant({
                   </div>
                 )}
 
-                {/* Text Input (Present in both tabs for seamless typing/editing) */}
+                {/* Pill Shaped Text Input matching screenshot */}
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 relative flex items-center">
+                  <div className="flex-1 relative flex items-center bg-[#131926]/90 border border-slate-800/90 rounded-full px-4 py-2.5 sm:py-3 shadow-inner focus-within:border-red-500/60 transition">
+                    <Mic className="w-4 h-4 text-red-500 mr-2.5 flex-shrink-0" />
                     <input
                       type="text"
                       value={inputText}
@@ -1783,17 +1864,13 @@ export default function LinnkProVoiceAssistant({
                           handleSendMessage(inputText);
                         }
                       }}
-                      placeholder={
-                        activeTab === 'call' && isInVoiceCall
-                          ? "🎙️ Escuchando... (o escribe aquí)"
-                          : "Escribe un mensaje o pregunta..."
-                      }
-                      className="w-full bg-[#111827] border border-[#232B3A] focus:border-[#E63946] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 outline-none transition pr-10"
+                      placeholder="Escribe tu mensaje..."
+                      className="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none pr-8"
                     />
                     {inputText.trim() ? (
                       <button
                         onClick={() => handleSendMessage(inputText)}
-                        className="absolute right-2 p-1.5 rounded-lg bg-[#E63946] hover:bg-[#D62839] text-white transition"
+                        className="absolute right-2.5 p-1.5 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white transition"
                       >
                         <Send className="w-3.5 h-3.5" />
                       </button>
@@ -1807,35 +1884,35 @@ export default function LinnkProVoiceAssistant({
                               startVoiceCall();
                             }
                           }}
-                          className={`absolute right-2 p-1.5 rounded-lg transition ${
-                            isInVoiceCall ? 'bg-[#E63946] text-white animate-pulse' : 'text-gray-400 hover:text-white'
+                          className={`absolute right-2.5 p-1.5 rounded-full transition ${
+                            isInVoiceCall ? 'bg-[#EF4444] text-white animate-pulse' : 'text-slate-400 hover:text-white'
                           }`}
                           title="Hablar por voz"
                         >
-                          <Mic className="w-3.5 h-3.5" />
+                          <Mic className="w-4 h-4" />
                         </button>
                       )
                     )}
                   </div>
                 </div>
 
-                {/* Primary Call Controls (rendered in Phone Call tab) */}
+                {/* Primary Call Controls (Silenciar, Finalizar, Altavoz) matching screenshot */}
                 {activeTab === 'call' && (
-                  <div className="flex items-center justify-around pt-2 pb-1">
+                  <div className="flex items-center justify-around pt-1 pb-2">
                     {/* Toggle User Microphone (Silenciar) */}
                     <button
                       id="linnkpro-voice-mic-toggle-btn"
                       onClick={() => setIsMicMuted(prev => !prev)}
-                      className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
+                      className="flex flex-col items-center gap-2 group transition"
                     >
-                      <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center border transition transform active:scale-95 ${
                         isMicMuted 
-                          ? 'bg-red-950/80 border-[#E63946] text-[#E63946]' 
-                          : 'bg-[#121826] border-[#232B3A] text-white hover:border-[#E63946]/50'
+                          ? 'bg-red-950/80 border-red-500 text-red-400 shadow-lg shadow-red-950/50' 
+                          : 'bg-[#131926] border-slate-800 text-red-500 group-hover:border-red-500/40 group-hover:bg-[#182030]'
                       }`}>
-                        {isMicMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6 text-gray-300" />}
+                        {isMicMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6 text-red-500 stroke-[2]" />}
                       </div>
-                      <span className="text-xs font-semibold text-gray-400">Silenciar</span>
+                      <span className="text-xs text-slate-400 font-medium group-hover:text-white transition">Silenciar</span>
                     </button>
 
                     {/* Main Call Action Button (Finalizar con icono X rojo o Iniciar) */}
@@ -1843,23 +1920,23 @@ export default function LinnkProVoiceAssistant({
                       <button
                         id="linnkpro-voice-end-call-btn"
                         onClick={endVoiceCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-2 group"
                       >
-                        <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95">
+                        <div className="w-20 h-20 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center shadow-2xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95">
                           <X className="w-8 h-8 text-white stroke-[2.5]" />
                         </div>
-                        <span className="text-xs font-bold text-white tracking-wide">Finalizar</span>
+                        <span className="text-xs font-semibold text-white tracking-wide">Finalizar</span>
                       </button>
                     ) : (
                       <button
                         id="linnkpro-voice-start-call-btn"
                         onClick={startVoiceCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-2 group"
                       >
-                        <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
-                          <Mic className="w-8 h-8 text-white" />
+                        <div className="w-20 h-20 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center shadow-2xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
+                          <Mic className="w-8 h-8 text-white stroke-[2.5]" />
                         </div>
-                        <span className="text-xs font-bold text-white tracking-wide">Hablar</span>
+                        <span className="text-xs font-semibold text-white tracking-wide">Hablar</span>
                       </button>
                     )}
 
@@ -1867,16 +1944,16 @@ export default function LinnkProVoiceAssistant({
                     <button
                       id="linnkpro-voice-speaker-toggle-btn"
                       onClick={() => setIsVoiceMuted(prev => !prev)}
-                      className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
+                      className="flex flex-col items-center gap-2 group transition"
                     >
-                      <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center border transition transform active:scale-95 ${
                         isVoiceMuted 
-                          ? 'bg-amber-950/80 border-[#F4B400] text-[#F4B400]' 
-                          : 'bg-[#121826] border-[#232B3A] text-white hover:border-gray-500'
+                          ? 'bg-amber-950/80 border-amber-500 text-amber-400' 
+                          : 'bg-[#131926] border-slate-800 text-red-500 group-hover:border-red-500/40 group-hover:bg-[#182030]'
                       }`}>
-                        {isVoiceMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6 text-gray-300" />}
+                        {isVoiceMuted ? <VolumeX className="w-6 h-6 text-amber-400" /> : <Volume2 className="w-6 h-6 text-red-500 stroke-[2]" />}
                       </div>
-                      <span className="text-xs font-semibold text-gray-400">Altavoz</span>
+                      <span className="text-xs text-slate-400 font-medium group-hover:text-white transition">Altavoz</span>
                     </button>
                   </div>
                 )}

@@ -20,7 +20,7 @@ import {
   Utensils
 } from 'lucide-react';
 import PwaLoadingScreen from './PwaLoadingScreen';
-import { fetchAllActiveProductsAndStores, checkIsStoreClosed } from '../lib/firebase';
+import { fetchAllActiveProductsAndStores, checkIsStoreClosed, findStoreForProduct } from '../lib/firebase';
 import { ProductItem, UserProfile } from '../types';
 import { isFoodProduct, isFoodCategory } from './TiendaGeneral';
 
@@ -51,8 +51,9 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
 
         // Filter and sort products (Food products first)
         const activeList = fetchedProducts.filter(p => {
-          const prof = fetchedProfiles[p.userId];
-          return p.active && prof && !prof.suspended && !checkIsStoreClosed(prof);
+          if (p.active === false) return false;
+          const prof = findStoreForProduct(p, fetchedProfiles);
+          return prof && !prof.suspended && !checkIsStoreClosed(prof);
         });
 
         const sorted = activeList.sort((a, b) => {

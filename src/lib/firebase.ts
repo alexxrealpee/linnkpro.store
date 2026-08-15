@@ -1493,20 +1493,39 @@ export function checkIsStoreClosed(profile?: {
 } | null): boolean {
   if (!profile) return false;
 
-  // 1. Manual override takes highest priority if explicitly closed
-  if (profile.isClosed) return true;
+  // 1. Manual override takes highest priority if explicitly set to true
+  if (profile.isClosed === true) return true;
 
   // 2. Automated schedule calculation if enabled and valid time strings exist
   if (
-    profile.scheduleEnabled &&
+    profile.scheduleEnabled === true &&
     typeof profile.openTime === 'string' &&
     typeof profile.closeTime === 'string' &&
     profile.openTime.includes(':') &&
     profile.closeTime.includes(':')
   ) {
     try {
-      const now = new Date();
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      // Calculate current minutes in Colombia timezone (America/Bogota)
+      let currentMinutes: number;
+      try {
+        const bogotaParts = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Bogota',
+          hour: 'numeric',
+          minute: 'numeric',
+          hour12: false
+        }).formatToParts(new Date());
+        
+        const hourPart = bogotaParts.find(p => p.type === 'hour')?.value;
+        const minutePart = bogotaParts.find(p => p.type === 'minute')?.value;
+        const bH = hourPart ? parseInt(hourPart, 10) : NaN;
+        const bM = minutePart ? parseInt(minutePart, 10) : NaN;
+        
+        currentMinutes = (!isNaN(bH) && !isNaN(bM)) ? (bH % 24) * 60 + bM : (new Date().getHours() * 60 + new Date().getMinutes());
+      } catch {
+        const now = new Date();
+        currentMinutes = now.getHours() * 60 + now.getMinutes();
+      }
+
       const openParts = profile.openTime.split(':');
       const closeParts = profile.closeTime.split(':');
 
@@ -1521,10 +1540,10 @@ export function checkIsStoreClosed(profile?: {
           const closeMins = closeH * 60 + closeM;
 
           if (closeMins > openMins) {
-            // Standard day schedule e.g., 08:00 - 16:00
+            // Standard day schedule e.g., 08:00 - 22:00
             if (currentMinutes < openMins || currentMinutes >= closeMins) return true;
           } else if (closeMins < openMins) {
-            // Overnight schedule e.g., 20:00 - 04:00
+            // Overnight schedule e.g., 18:00 - 03:00 (crosses midnight)
             if (currentMinutes < openMins && currentMinutes >= closeMins) return true;
           }
         }
@@ -1543,72 +1562,139 @@ export const DEFAULT_PLATFORM_STORES: Record<string, UserProfile> = {};
 export const DEFAULT_PLATFORM_PRODUCTS: ProductItem[] = [];
 
 // Helper to find a store profile for a product by userId, uid, username or storeName
-export function findStoreForProduct(product: { userId?: string; storeName?: string; storeUsername?: string }, profilesMap: Record<string, UserProfile>): UserProfile | null {
-  if (!product || !profilesMap) return null;
-  
-  if (product.userId && profilesMap[product.userId]) {
-    return profilesMap[product.userId];
+export function findStoreForProduct(
+  product: { userId?: string; storeName?: string; storeUsername?: string }, 
+  profilesMap?: Record<string, UserProfile>
+): UserProfile {
+  const safeMap = profilesMap || {};
+
+  if (product?.userId && safeMap[product.userId]) {
+    return safeMap[product.userId];
   }
 
-  const allProfiles = Object.values(profilesMap);
-  if (product.userId) {
-    const matched = allProfiles.find(p => p.uid === product.userId || p.username === product.userId);
+  const allProfiles = Object.values(safeMap);
+  if (product?.userId) {
+    const matched = allProfiles.find(p => p && (p.uid === product.userId || p.username === product.userId));
     if (matched) return matched;
   }
 
-  if (product.storeUsername) {
-    const matched = allProfiles.find(p => p.username?.toLowerCase() === product.storeUsername?.toLowerCase());
+  if (product?.storeUsername) {
+    const matched = allProfiles.find(p => p && p.username?.toLowerCase() === product.storeUsername?.toLowerCase());
     if (matched) return matched;
   }
 
-  if (product.storeName) {
-    const matched = allProfiles.find(p => p.displayName?.toLowerCase() === product.storeName?.toLowerCase());
+  if (product?.storeName) {
+    const matched = allProfiles.find(p => p && p.displayName?.toLowerCase() === product.storeName?.toLowerCase());
     if (matched) return matched;
   }
 
-  return null;
+  // Fallback: If no explicit profile document was fetched from Firestore, synthesize an open profile
+  // from the product metadata so products and restaurants are NEVER mistakenly dropped as "closed" or "missing"!
+  const fallbackUid = product?.userId || `store_${(product?.storeUsername || product?.storeName || 'general').toLowerCase().replace(/\s+/g, '_')}`;
+  const fallbackUsername = (product?.storeUsername || product?.storeName || 'restaurante').toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  const fallbackDisplayName = product?.storeName || product?.storeUsername || 'Restaurante';
+
+  return {
+    uid: fallbackUid,
+    email: `${fallbackUsername || 'store'}@linnkpro.store`,
+    username: fallbackUsername,
+    displayName: fallbackDisplayName,
+    bio: 'Restaurante y tienda oficial en LinnkPro',
+    role: 'user',
+    plan: 'pro',
+    isClosed: false,
+    suspended: false,
+    createdAt: new Date().toISOString()
+  };
 }
 
-// Fetch all active products and profiles from Firestore
+// Fetch all active products and profiles from Firestore and local cache
 export async function fetchAllActiveProductsAndStores(): Promise<{ products: ProductItem[]; profiles: Record<string, UserProfile> }> {
   try {
-    // 1. Fetch profiles
-    const profilesSnapshot = await getDocs(collection(db, 'profiles')).catch(() => null);
     const profilesMap: Record<string, UserProfile> = {};
-    const openUserIds: string[] = [];
 
-    if (profilesSnapshot && !profilesSnapshot.empty) {
-      profilesSnapshot.forEach(doc => {
-        const data = doc.data() as UserProfile;
-        if (!data.suspended) {
-          const profileObj: UserProfile = { ...data, uid: data.uid || doc.id };
-          profilesMap[doc.id] = profileObj;
-          openUserIds.push(doc.id);
-        }
-      });
+    // 1. Fetch profiles from Firestore
+    try {
+      const profilesSnapshot = await getDocs(collection(db, 'profiles'));
+      if (profilesSnapshot && !profilesSnapshot.empty) {
+        profilesSnapshot.forEach(docSnap => {
+          const data = docSnap.data() as UserProfile;
+          if (!data.suspended) {
+            const profileObj: UserProfile = { 
+              ...data, 
+              uid: data.uid || docSnap.id,
+              isClosed: data.isClosed === true
+            };
+            profilesMap[docSnap.id] = profileObj;
+            if (profileObj.uid) profilesMap[profileObj.uid] = profileObj;
+            if (profileObj.username) profilesMap[profileObj.username.toLowerCase()] = profileObj;
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Could not fetch remote profiles snapshot:", e);
     }
 
-    // 2. Fetch products directly from Firestore products collection
+    // 2. Fetch local storage cached profiles
+    try {
+      const rawLocalProfiles = localStorage.getItem('linnk_profiles');
+      if (rawLocalProfiles) {
+        const parsed = JSON.parse(rawLocalProfiles);
+        Object.keys(parsed).forEach(k => {
+          const p = parsed[k];
+          if (p && !p.suspended) {
+            const profileObj: UserProfile = { ...p, uid: p.uid || k, isClosed: p.isClosed === true };
+            if (!profilesMap[k]) profilesMap[k] = profileObj;
+            if (profileObj.uid && !profilesMap[profileObj.uid]) profilesMap[profileObj.uid] = profileObj;
+            if (profileObj.username && !profilesMap[profileObj.username.toLowerCase()]) {
+              profilesMap[profileObj.username.toLowerCase()] = profileObj;
+            }
+          }
+        });
+      }
+
+      // Check current user session profile
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('linnk_session_') || key.startsWith('linnk_profile_'))) {
+          try {
+            const sp = JSON.parse(localStorage.getItem(key) || '{}');
+            if (sp && sp.uid && !sp.suspended) {
+              const profileObj: UserProfile = { ...sp, isClosed: sp.isClosed === true };
+              if (!profilesMap[sp.uid]) profilesMap[sp.uid] = profileObj;
+              if (sp.username && !profilesMap[sp.username.toLowerCase()]) {
+                profilesMap[sp.username.toLowerCase()] = profileObj;
+              }
+            }
+          } catch (err) {}
+        }
+      }
+    } catch (e) {}
+
+    // 3. Fetch products directly from Firestore products collection
     const products: ProductItem[] = [];
-    const productsSnapshot = await getDocs(collection(db, 'products')).catch(() => null);
-
-    if (productsSnapshot && !productsSnapshot.empty) {
-      productsSnapshot.forEach(doc => {
-        const data = doc.data() as ProductItem;
-        if (data && data.active !== false) {
-          products.push({
-            id: doc.id,
-            ...data,
-            name: data.name || 'Producto sin nombre',
-            price: typeof data.price === 'number' && !isNaN(data.price) ? data.price : parseFloat(data.price as any) || 0,
-            stock: typeof data.stock === 'number' && !isNaN(data.stock) ? data.stock : parseInt(data.stock as any) || 0,
-            active: true
-          });
-        }
-      });
+    try {
+      const productsSnapshot = await getDocs(collection(db, 'products'));
+      if (productsSnapshot && !productsSnapshot.empty) {
+        productsSnapshot.forEach(docSnap => {
+          const data = docSnap.data() as ProductItem;
+          if (data && data.active !== false) {
+            products.push({
+              id: docSnap.id,
+              ...data,
+              name: data.name || 'Producto sin nombre',
+              price: typeof data.price === 'number' && !isNaN(data.price) ? data.price : parseFloat(data.price as any) || 0,
+              stock: typeof data.stock === 'number' && !isNaN(data.stock) ? data.stock : parseInt(data.stock as any) || 0,
+              active: true
+            });
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Could not fetch remote products snapshot:", e);
     }
 
-    // 3. Merge locally stored products
+    // 4. Merge locally stored products
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -1628,7 +1714,19 @@ export async function fetchAllActiveProductsAndStores(): Promise<{ products: Pro
       }
     } catch (e) {}
 
-    return { products: deduplicateProducts(products), profiles: profilesMap };
+    // 5. Ensure every product has a valid associated profile in profilesMap
+    const dedupedProducts = deduplicateProducts(products);
+    dedupedProducts.forEach(p => {
+      const storeProf = findStoreForProduct(p, profilesMap);
+      if (storeProf) {
+        if (storeProf.uid && !profilesMap[storeProf.uid]) profilesMap[storeProf.uid] = storeProf;
+        if (storeProf.username && !profilesMap[storeProf.username.toLowerCase()]) {
+          profilesMap[storeProf.username.toLowerCase()] = storeProf;
+        }
+      }
+    });
+
+    return { products: dedupedProducts, profiles: profilesMap };
   } catch (e) {
     console.error("Error fetching all active products and profiles:", e);
     return { products: [], profiles: {} };
