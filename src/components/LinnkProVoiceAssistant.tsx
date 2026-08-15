@@ -34,7 +34,8 @@ import {
   ChevronDown,
   AudioWaveform,
   AudioLines,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
 import { 
@@ -814,11 +815,17 @@ export default function LinnkProVoiceAssistant({
         userId: c.product.userId
       }));
 
-      // Map recent history
-      const historyPayload = messages.slice(-6).map(m => ({
-        role: (m.sender === 'user' ? 'user' : 'model') as 'user' | 'model',
-        parts: [{ text: m.text }]
-      }));
+      // Map confirmed prior history strictly alternating and non-empty
+      const historyPayload: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+      messages.slice(-8).forEach(m => {
+        if (m.text && m.text.trim()) {
+          const role = m.sender === 'user' ? 'user' : 'model';
+          historyPayload.push({
+            role,
+            parts: [{ text: m.text.trim() }]
+          });
+        }
+      });
 
       let result: any = null;
 
@@ -1571,13 +1578,42 @@ export default function LinnkProVoiceAssistant({
                     </div>
                   ))}
 
+                  {/* Processing / Typing Indicator */}
+                  {assistantState === 'processing' && (
+                    <div className="flex items-center gap-2 text-xs text-[#A9B2C3] bg-[#111827] border border-[#232B3A] px-3.5 py-2 rounded-2xl w-fit">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#E63946]" />
+                      <span>LinnkPro está pensando...</span>
+                    </div>
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               )}
 
-              {/* BOTTOM CALL CONTROLS BAR (Phone Call Experience) */}
+              {/* BOTTOM CONTROLS BAR */}
               <div className="p-3.5 sm:p-4 bg-[#0D111D] border-t border-[#232B3A] flex flex-col gap-2.5">
-                {/* Fallback Text Input (if user wants to type or edit text) */}
+                {/* Chat Quick Suggestion Chips (when in chat tab) */}
+                {activeTab === 'chat' && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+                    {[
+                      { label: '🍔 Hamburguesas', query: 'Muéstrame hamburguesas disponibles' },
+                      { label: '🍕 Pizzas', query: '¿Qué pizzas tienen?' },
+                      { label: '🍗 Pollo', query: '¿Tienen pollo asado o broaster?' },
+                      { label: '🛒 Mi Carrito', query: '¿Qué tengo en el carrito?' },
+                      { label: '🥤 Bebidas', query: 'Ver bebidas disponibles' }
+                    ].map((chip, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSendMessage(chip.query)}
+                        className="px-2.5 py-1 rounded-full bg-[#161D2C] hover:bg-[#1E293B] text-gray-300 hover:text-white border border-[#232B3A] whitespace-nowrap transition"
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Text Input (Present in both tabs for seamless typing/editing) */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1 relative flex items-center">
                     <input
@@ -1591,82 +1627,102 @@ export default function LinnkProVoiceAssistant({
                         }
                       }}
                       placeholder={
-                        isInVoiceCall
-                          ? "🎙️ Micrófono en vivo activo... (o escribe aquí)"
-                          : "Escribe un mensaje o habla por voz..."
+                        activeTab === 'call' && isInVoiceCall
+                          ? "🎙️ Escuchando... (o escribe aquí)"
+                          : "Escribe un mensaje o pregunta..."
                       }
                       className="w-full bg-[#111827] border border-[#232B3A] focus:border-[#E63946] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 outline-none transition pr-10"
                     />
-                    {inputText.trim() && (
+                    {inputText.trim() ? (
                       <button
                         onClick={() => handleSendMessage(inputText)}
                         className="absolute right-2 p-1.5 rounded-lg bg-[#E63946] hover:bg-[#D62839] text-white transition"
                       >
                         <Send className="w-3.5 h-3.5" />
                       </button>
+                    ) : (
+                      activeTab === 'chat' && (
+                        <button
+                          onClick={() => {
+                            if (isInVoiceCall) {
+                              endVoiceCall();
+                            } else {
+                              startVoiceCall();
+                            }
+                          }}
+                          className={`absolute right-2 p-1.5 rounded-lg transition ${
+                            isInVoiceCall ? 'bg-[#E63946] text-white animate-pulse' : 'text-gray-400 hover:text-white'
+                          }`}
+                          title="Hablar por voz"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
 
-                {/* Primary Call Controls (Silenciar, Finalizar (X), Altavoz) */}
-                <div className="flex items-center justify-around pt-2 pb-1">
-                  {/* Toggle User Microphone (Silenciar) */}
-                  <button
-                    id="linnkpro-voice-mic-toggle-btn"
-                    onClick={() => setIsMicMuted(prev => !prev)}
-                    className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
-                  >
-                    <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
-                      isMicMuted 
-                        ? 'bg-red-950/80 border-[#E63946] text-[#E63946]' 
-                        : 'bg-[#121826] border-[#232B3A] text-white hover:border-[#E63946]/50'
-                    }`}>
-                      {isMicMuted ? <MicOff className="w-6 h-6" /> : <MicOff className="w-6 h-6 text-gray-300" />}
-                    </div>
-                    <span className="text-xs font-semibold text-gray-400">Silenciar</span>
-                  </button>
-
-                  {/* Main Call Action Button (Finalizar con icono X rojo o Iniciar) */}
-                  {isInVoiceCall ? (
+                {/* Primary Call Controls (rendered in Phone Call tab) */}
+                {activeTab === 'call' && (
+                  <div className="flex items-center justify-around pt-2 pb-1">
+                    {/* Toggle User Microphone (Silenciar) */}
                     <button
-                      id="linnkpro-voice-end-call-btn"
-                      onClick={endVoiceCall}
-                      className="flex flex-col items-center gap-1.5 group"
+                      id="linnkpro-voice-mic-toggle-btn"
+                      onClick={() => setIsMicMuted(prev => !prev)}
+                      className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
                     >
-                      <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95">
-                        <X className="w-8 h-8 text-white stroke-[2.5]" />
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
+                        isMicMuted 
+                          ? 'bg-red-950/80 border-[#E63946] text-[#E63946]' 
+                          : 'bg-[#121826] border-[#232B3A] text-white hover:border-[#E63946]/50'
+                      }`}>
+                        {isMicMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6 text-gray-300" />}
                       </div>
-                      <span className="text-xs font-bold text-white tracking-wide">Finalizar</span>
+                      <span className="text-xs font-semibold text-gray-400">Silenciar</span>
                     </button>
-                  ) : (
-                    <button
-                      id="linnkpro-voice-start-call-btn"
-                      onClick={startVoiceCall}
-                      className="flex flex-col items-center gap-1.5 group"
-                    >
-                      <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
-                        <Mic className="w-8 h-8 text-white" />
-                      </div>
-                      <span className="text-xs font-bold text-white tracking-wide">Hablar</span>
-                    </button>
-                  )}
 
-                  {/* Toggle AI Speaker Voice Output (Altavoz) */}
-                  <button
-                    id="linnkpro-voice-speaker-toggle-btn"
-                    onClick={() => setIsVoiceMuted(prev => !prev)}
-                    className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
-                  >
-                    <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
-                      isVoiceMuted 
-                        ? 'bg-amber-950/80 border-[#F4B400] text-[#F4B400]' 
-                        : 'bg-[#121826] border-[#232B3A] text-white hover:border-gray-500'
-                    }`}>
-                      {isVoiceMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6 text-gray-300" />}
-                    </div>
-                    <span className="text-xs font-semibold text-gray-400">Altavoz</span>
-                  </button>
-                </div>
+                    {/* Main Call Action Button (Finalizar con icono X rojo o Iniciar) */}
+                    {isInVoiceCall ? (
+                      <button
+                        id="linnkpro-voice-end-call-btn"
+                        onClick={endVoiceCall}
+                        className="flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95">
+                          <X className="w-8 h-8 text-white stroke-[2.5]" />
+                        </div>
+                        <span className="text-xs font-bold text-white tracking-wide">Finalizar</span>
+                      </button>
+                    ) : (
+                      <button
+                        id="linnkpro-voice-start-call-btn"
+                        onClick={startVoiceCall}
+                        className="flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
+                          <Mic className="w-8 h-8 text-white" />
+                        </div>
+                        <span className="text-xs font-bold text-white tracking-wide">Hablar</span>
+                      </button>
+                    )}
+
+                    {/* Toggle AI Speaker Voice Output (Altavoz) */}
+                    <button
+                      id="linnkpro-voice-speaker-toggle-btn"
+                      onClick={() => setIsVoiceMuted(prev => !prev)}
+                      className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
+                    >
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
+                        isVoiceMuted 
+                          ? 'bg-amber-950/80 border-[#F4B400] text-[#F4B400]' 
+                          : 'bg-[#121826] border-[#232B3A] text-white hover:border-gray-500'
+                      }`}>
+                        {isVoiceMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6 text-gray-300" />}
+                      </div>
+                      <span className="text-xs font-semibold text-gray-400">Altavoz</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

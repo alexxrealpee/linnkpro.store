@@ -392,28 +392,45 @@ ${cartItemsSummary}
 
 Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
 
-  // Format history for contents
-  const contentsPayload: any[] = [];
-  
+  // Build contents with strictly valid role alternation starting with 'user'
+  const contentsPayload: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
   if (history && history.length > 0) {
-    history.slice(-6).forEach(h => {
-      if (h.role === 'user' || h.role === 'model') {
-        contentsPayload.push({
-          role: h.role,
-          parts: h.parts
-        });
+    for (const h of history.slice(-6)) {
+      if ((h.role === 'user' || h.role === 'model') && Array.isArray(h.parts)) {
+        const textPart = h.parts.map((p: any) => p?.text || '').join(' ').trim();
+        if (textPart) {
+          // If first message is 'model', skip it so conversation starts with 'user'
+          if (contentsPayload.length === 0 && h.role === 'model') {
+            continue;
+          }
+          // If consecutive role is identical to previous, merge parts
+          if (contentsPayload.length > 0 && contentsPayload[contentsPayload.length - 1].role === h.role) {
+            contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${textPart}`;
+          } else {
+            contentsPayload.push({
+              role: h.role,
+              parts: [{ text: textPart }]
+            });
+          }
+        }
       }
+    }
+  }
+
+  // Ensure latest user message is appended cleanly without consecutive 'user' roles
+  const cleanUserMsg = userMessage.trim();
+  if (contentsPayload.length > 0 && contentsPayload[contentsPayload.length - 1].role === 'user') {
+    contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${cleanUserMsg}`;
+  } else {
+    contentsPayload.push({
+      role: 'user',
+      parts: [{ text: cleanUserMsg }]
     });
   }
 
-  // Append latest user message
-  contentsPayload.push({
-    role: 'user',
-    parts: [{ text: userMessage }]
-  });
-
-  // Prioritize high-throughput flash models with automated fallback & rate-limit resilience
-  const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
+  // Prioritize production-ready text and function-calling models
+  const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest'];
   let response: any = null;
   let lastError: any = null;
 
@@ -431,10 +448,11 @@ Valor de domicilio base: ${deliveryFee.toLocaleString('es-CO')} pesos.`;
       if (response) break;
     } catch (err: any) {
       lastError = err;
-      // If error is 429 rate limit or 503, wait briefly and try next model
+      console.warn(`Voice assistant model ${modelName} error:`, err?.message || err);
+      // Brief pause if rate limit
       const isRateLimit = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota');
       if (isRateLimit) {
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 100));
       }
     }
   }
