@@ -33,6 +33,7 @@ import {
   Radio,
   ChevronDown,
   AudioWaveform,
+  AudioLines,
   Check
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
@@ -40,6 +41,8 @@ import {
   fetchAllActiveProductsAndStores, 
   fetchSystemSettings, 
   saveOrder, 
+  checkIsStoreClosed,
+  findStoreForProduct,
   DEFAULT_PLATFORM_PRODUCTS, 
   DEFAULT_PLATFORM_STORES 
 } from '../lib/firebase';
@@ -97,7 +100,7 @@ export default function LinnkProVoiceAssistant({
     {
       id: 'welcome',
       sender: 'assistant',
-      text: '¡Hola! Soy tu asistente de voz en tiempo real de LinnkPro. Puedes pedirme platos, consultar menús de restaurantes, ver tu carrito o hacer tu pedido directamente hablando.',
+      text: `¡Hola! 👋 Soy tu Mesero IA 🤖🍽️\n\nPuedes hablar conmigo para buscar platos, consultar menús, revisar tu carrito y hacer tu pedido, todo de forma rápida y sencilla.\n\n🎙️ Solo dime qué quieres comer y yo me encargo del resto.`,
       timestamp: new Date()
     }
   ]);
@@ -174,8 +177,17 @@ export default function LinnkProVoiceAssistant({
       ]);
 
       if (catalogData && catalogData.products) {
-        setCatalogProducts(catalogData.products);
-        setCatalogStores(catalogData.profiles);
+        const profiles = catalogData.profiles || {};
+        const onlyOpenProducts = catalogData.products.filter(p => {
+          if (p.active === false) return false;
+          const store = findStoreForProduct(p, profiles);
+          if (store) {
+            return !checkIsStoreClosed(store) && !store.suspended;
+          }
+          return true;
+        });
+        setCatalogProducts(onlyOpenProducts);
+        setCatalogStores(profiles);
       }
       if (settings && typeof settings.defaultDeliveryFee === 'number') {
         setSystemDeliveryFee(settings.defaultDeliveryFee);
@@ -589,7 +601,14 @@ export default function LinnkProVoiceAssistant({
     const executedActions: any[] = [];
     let responseText = '';
 
-    const activeProducts = products.filter(p => p.active !== false);
+    const activeProducts = products.filter(p => {
+      if (p.active === false) return false;
+      const store = findStoreForProduct(p, stores);
+      if (store) {
+        return !checkIsStoreClosed(store) && !store.suspended;
+      }
+      return true;
+    });
 
     // 1. Check cart request
     if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
@@ -740,35 +759,47 @@ export default function LinnkProVoiceAssistant({
     setAssistantState('processing');
 
     try {
-      // Build catalog context with real data
-      const storesArray = (Object.values(catalogStores) as UserProfile[]).map(s => ({
+      // Build catalog context with real data (ONLY open stores and active products)
+      const allStoresList = Array.from(new Set(Object.values(catalogStores) as UserProfile[]));
+      const openStoresList = allStoresList.filter(s => !checkIsStoreClosed(s) && !s.suspended);
+
+      const storesArray = openStoresList.map(s => ({
         uid: s.uid,
-        username: s.username,
-        displayName: s.displayName,
-        bio: s.bio,
-        address: s.address,
-        phone: s.phone,
-        whatsapp: s.whatsapp,
-        isClosed: s.isClosed
+        username: s.username || '',
+        displayName: s.displayName || s.username || 'Tienda',
+        bio: s.bio || '',
+        address: s.address || '',
+        phone: s.phone || '',
+        whatsapp: s.whatsapp || '',
+        isClosed: false
       }));
 
-      const productsArray = catalogProducts.map(p => {
-        const store = catalogStores[p.userId];
-        return {
-          id: p.id,
-          userId: p.userId,
-          name: p.name,
-          description: p.description,
-          price: p.price,
-          stock: p.stock,
-          category: p.category,
-          // Omit heavy data URLs to keep payload ultra light and fast
-          imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
-          storeName: store?.displayName || 'Tienda',
-          storeUsername: store?.username || '',
-          active: p.active
-        };
-      });
+      const productsArray = catalogProducts
+        .filter(p => {
+          if (p.active === false) return false;
+          const store = findStoreForProduct(p, catalogStores);
+          if (store) {
+            return !checkIsStoreClosed(store) && !store.suspended;
+          }
+          return true;
+        })
+        .map(p => {
+          const store = findStoreForProduct(p, catalogStores);
+          return {
+            id: p.id,
+            userId: p.userId || store?.uid || '',
+            name: p.name,
+            description: p.description || '',
+            price: p.price,
+            stock: p.stock,
+            category: p.category || 'General',
+            // Omit heavy data URLs to keep payload ultra light and fast
+            imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
+            storeName: store?.displayName || 'Tienda',
+            storeUsername: store?.username || '',
+            active: p.active
+          };
+        });
 
       const currentCart = getStoredCart();
       const cartPayload = currentCart.map(c => ({
@@ -1025,12 +1056,12 @@ export default function LinnkProVoiceAssistant({
               setIsOpen(false);
             }
           }}
-          className={`group relative flex items-center gap-3 px-4 py-3 rounded-full shadow-2xl transition-all duration-300 transform active:scale-95 border ${
+          className={`group relative flex items-center gap-2 px-3.5 py-2.5 rounded-full shadow-2xl transition-all duration-300 transform active:scale-95 border ${
             isInVoiceCall
               ? 'bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] text-white border-[#E63946] ring-4 ring-[#E63946]/30 animate-pulse'
               : 'bg-[#090B12]/95 hover:bg-[#111827] text-white border-[#E63946]/40 hover:border-[#E63946] shadow-2xl shadow-red-950/60 hover:scale-105'
           }`}
-          aria-label="Hablar con Asistente de Voz AI"
+          aria-label="Hablar con Mesero IA"
         >
           {/* Animated Glow Ring */}
           <span className="absolute -inset-1 rounded-full bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] opacity-35 blur group-hover:opacity-75 transition duration-500"></span>
@@ -1042,25 +1073,16 @@ export default function LinnkProVoiceAssistant({
                 <PhoneCall className="w-5 h-5 text-white animate-pulse" />
               </div>
             ) : (
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#E63946] to-[#F4B400] flex items-center justify-center shadow-md">
-                <Mic className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#E63946] to-[#F4B400] flex items-center justify-center shadow-md relative">
+                <AudioLines className="w-4 h-4 text-white" />
+                <Sparkles className="w-2.5 h-2.5 text-amber-200 absolute -top-0.5 -right-0.5 fill-amber-200" />
               </div>
             )}
           </div>
 
-          <div className="relative flex flex-col text-left pr-1">
-            <span className="text-xs font-black tracking-wide uppercase leading-tight flex items-center gap-1.5">
-              <span className="text-[#F4B400]">.AI VOICE</span>
-              <span className={`inline-block w-2 h-2 rounded-full ${isInVoiceCall ? 'bg-[#F4B400] animate-ping' : 'bg-[#E63946]'}`}></span>
-            </span>
-            <span className="text-[11px] font-medium text-[#A9B2C3] leading-tight">
-              {isInVoiceCall ? (
-                <span className="text-[#F4B400] font-bold">🔴 En llamada ({formatDuration(callDuration)})</span>
-              ) : (
-                'Toca para hablar en vivo'
-              )}
-            </span>
-          </div>
+          <span className="relative text-sm font-black tracking-wider uppercase text-white pr-1">
+            IA
+          </span>
         </button>
       </div>
 
@@ -1088,24 +1110,6 @@ export default function LinnkProVoiceAssistant({
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-[#E63946] flex items-center justify-center text-white shadow-md">
                     <Sparkles className="w-4 h-4 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-black text-white flex items-center gap-1.5 leading-none lowercase">
-                      linnkpro<span className="text-[#F4B400]">.ai</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#E63946]/15 text-[#E63946] border border-[#E63946]/40 font-bold uppercase tracking-wider">
-                        Real-Time
-                      </span>
-                    </h3>
-                    <div className="flex items-center gap-1.5 text-[11px] text-[#A9B2C3] mt-1">
-                      {isInVoiceCall ? (
-                        <>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#F4B400] animate-ping"></span>
-                          <span className="text-[#F4B400] font-semibold">Llamada en curso: {formatDuration(callDuration)}</span>
-                        </>
-                      ) : (
-                        <span>Llamada finalizada</span>
-                      )}
-                    </div>
                   </div>
                 </div>
 
@@ -1174,40 +1178,16 @@ export default function LinnkProVoiceAssistant({
                   </div>
 
                   {/* 1. Status Indicator Pill */}
-                  <div className="flex justify-center z-10 pt-1">
-                    <div className={`px-4 py-1.5 rounded-full border text-xs font-bold flex items-center gap-2 shadow-lg backdrop-blur transition-all duration-300 ${
-                      assistantState === 'listening'
-                        ? 'bg-[#E63946]/20 border-[#E63946]/50 text-white'
-                        : assistantState === 'speaking'
-                        ? 'bg-[#F4B400]/20 border-[#F4B400]/50 text-[#F4B400] animate-pulse'
-                        : assistantState === 'processing'
-                        ? 'bg-[#111827] border-[#232B3A] text-white animate-pulse'
-                        : 'bg-[#111827] border-[#232B3A] text-[#A9B2C3]'
-                    }`}>
-                      {assistantState === 'listening' && (
-                        <>
-                          <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping"></span>
-                          <span>🎙️ Escuchando... habla con libertad</span>
-                        </>
-                      )}
-                      {assistantState === 'speaking' && (
-                        <>
-                          <span className="w-2 h-2 rounded-full bg-[#F4B400] animate-bounce"></span>
-                          <span>🔊 LinnkPro hablando (puedes interrumpirme)</span>
-                        </>
-                      )}
-                      {assistantState === 'processing' && (
-                        <>
-                          <span className="w-2 h-2 rounded-full bg-[#E63946] animate-spin"></span>
-                          <span>🧠 Procesando en tiempo real...</span>
-                        </>
-                      )}
-                      {assistantState === 'idle' && (
-                        <>
-                          <span className="w-2 h-2 rounded-full bg-gray-500"></span>
-                          <span>⏸️ En espera</span>
-                        </>
-                      )}
+                  <div className="flex justify-center z-10 pt-2">
+                    <div className="px-5 py-2 rounded-full bg-[#0D111D]/80 border border-[#232B3A] text-xs font-semibold flex items-center gap-2 shadow-xl backdrop-blur">
+                      <Mic className="w-4 h-4 text-[#E63946]" />
+                      <span className="text-gray-300">
+                        {assistantState === 'listening' ? 'Escuchando... habla con libertad' :
+                         assistantState === 'speaking' ? 'LinnkPro respondiendo...' :
+                         assistantState === 'processing' ? 'Procesando tu solicitud...' :
+                         'En espera'}
+                      </span>
+                      <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping ml-1"></span>
                     </div>
                   </div>
 
@@ -1226,96 +1206,55 @@ export default function LinnkProVoiceAssistant({
                     </div>
                   )}
 
-                  {/* 2. Interactive Central AI Voice Orb */}
-                  <div className="flex flex-col items-center justify-center my-auto py-4 z-10">
-                    <div className="relative flex items-center justify-center">
-                      {/* Pulse Ring 1 */}
-                      <div 
-                        className={`absolute rounded-full border transition-all duration-500 ${
-                          assistantState === 'listening'
-                            ? 'border-[#E63946]/50 animate-ping'
-                            : assistantState === 'speaking'
-                            ? 'border-[#F4B400]/50 animate-ping'
-                            : 'border-transparent'
-                        }`}
-                        style={{
-                          width: `${140 + micAudioLevel * 80}px`,
-                          height: `${140 + micAudioLevel * 80}px`,
-                        }}
-                      />
+                  {/* 2. Central Mic Button with Soundwaves on Sides and Arc Glow Ring */}
+                  <div className="flex flex-col items-center justify-center my-auto py-6 z-10">
+                    <div className="relative flex items-center justify-center gap-4 sm:gap-6">
+                      {/* Left Audio Waveform Bars */}
+                      <div className="flex items-center gap-1.5 opacity-40">
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-14 bg-[#E63946]' : 'h-8'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
+                      </div>
 
-                      {/* Pulse Ring 2 */}
-                      <div 
-                        className={`absolute rounded-full border transition-all duration-300 ${
-                          assistantState === 'listening'
-                            ? 'border-[#E63946]/30'
-                            : assistantState === 'speaking'
-                            ? 'border-[#F4B400]/30'
-                            : 'border-transparent'
-                        }`}
-                        style={{
-                          width: `${170 + micAudioLevel * 100}px`,
-                          height: `${170 + micAudioLevel * 100}px`,
-                        }}
-                      />
+                      {/* Main Mic Button with Arc and Red Radial Glow */}
+                      <div className="relative flex items-center justify-center">
+                        {/* Outer Arc Highlight Ring */}
+                        <div className="absolute -inset-3 rounded-full border-2 border-transparent border-t-[#E63946] border-r-[#E63946]/80 animate-spin [animation-duration:4s] opacity-90"></div>
+                        <div className="absolute -inset-3 rounded-full border border-red-500/20"></div>
 
-                      {/* Main Orb */}
-                      <div 
-                        className={`w-32 h-32 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform ${
-                          assistantState === 'listening'
-                            ? 'bg-gradient-to-tr from-[#E63946] via-[#D62839] to-[#F4B400] shadow-[#E63946]/60 scale-105'
-                            : assistantState === 'speaking'
-                            ? 'bg-gradient-to-tr from-[#F4B400] via-[#E63946] to-[#D62839] shadow-[#F4B400]/60 scale-110 animate-pulse'
-                            : assistantState === 'processing'
-                            ? 'bg-gradient-to-tr from-[#1E293B] via-[#E63946] to-[#F4B400] shadow-[#E63946]/50 animate-spin'
-                            : 'bg-gradient-to-tr from-[#111827] to-[#1F2937] shadow-black/80'
-                        }`}
-                      >
-                        {assistantState === 'listening' ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-6 bg-white rounded-full animate-bounce [animation-delay:0ms]"></span>
-                            <span className="w-1.5 h-10 bg-white rounded-full animate-bounce [animation-delay:150ms]"></span>
-                            <span className="w-1.5 h-5 bg-white rounded-full animate-bounce [animation-delay:300ms]"></span>
-                            <span className="w-1.5 h-8 bg-white rounded-full animate-bounce [animation-delay:450ms]"></span>
-                          </div>
-                        ) : assistantState === 'speaking' ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-4 bg-white rounded-full animate-pulse"></span>
-                            <span className="w-1.5 h-8 bg-white rounded-full animate-pulse"></span>
-                            <span className="w-1.5 h-10 bg-white rounded-full animate-pulse"></span>
-                            <span className="w-1.5 h-6 bg-white rounded-full animate-pulse"></span>
-                          </div>
-                        ) : assistantState === 'processing' ? (
-                          <Sparkles className="w-10 h-10 text-white animate-spin" />
-                        ) : (
-                          <Mic className="w-10 h-10 text-gray-300" />
-                        )}
+                        {/* Red Radial Ambient Glow */}
+                        <div className="absolute inset-0 rounded-full bg-[#E63946] blur-xl opacity-40 animate-pulse"></div>
+
+                        {/* Solid Red Center Mic Button */}
+                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-[#FF3B47] to-[#C1121F] flex items-center justify-center shadow-2xl shadow-red-600/50 relative z-10">
+                          <Mic className="w-10 h-10 sm:w-12 sm:h-12 text-white stroke-[2.5]" />
+                        </div>
+                      </div>
+
+                      {/* Right Audio Waveform Bars */}
+                      <div className="flex items-center gap-1.5 opacity-40">
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-14 bg-[#E63946]' : 'h-8'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-10 bg-[#E63946]' : 'h-5'}`}></span>
+                        <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
                       </div>
                     </div>
 
-                    {/* Real-time Subtitles / Live Transcript */}
-                    <div className="w-full max-w-sm mt-6 text-center min-h-[56px] flex items-center justify-center px-4">
-                      {transcript ? (
-                        <div className="bg-[#111827] border border-[#E63946]/50 rounded-2xl px-4 py-2 text-sm text-white shadow-lg animate-fadeIn">
-                          <span className="text-[10px] text-[#E63946] font-extrabold block uppercase tracking-wider mb-0.5">Tú estás diciendo:</span>
-                          "{transcript}"
-                        </div>
-                      ) : assistantState === 'speaking' && lastAssistantMessage ? (
-                        <div className="bg-[#161F30] border border-[#F4B400]/40 rounded-2xl px-4 py-2 text-xs text-gray-100 max-h-24 overflow-y-auto shadow-lg">
-                          <span className="text-[10px] text-[#F4B400] font-extrabold block uppercase tracking-wider mb-0.5">LinnkPro AI:</span>
-                          {lastAssistantMessage.text}
-                        </div>
-                      ) : assistantState === 'processing' ? (
-                        <p className="text-xs text-[#F4B400] animate-pulse font-bold">
-                          Consultando menú y preparando respuesta...
+                    {/* Live Transcript Bubble matching reference ("Tú estás diciendo:") */}
+                    <div className="w-full max-w-sm mt-8 px-2 flex flex-col items-center">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0D111D] border border-[#232B3A] text-[11px] font-bold text-gray-300 mb-2">
+                        <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping"></span>
+                        <span>Tú estás diciendo:</span>
+                      </div>
+
+                      <div className="w-full bg-[#0D111D]/90 border border-[#232B3A] rounded-2xl px-5 py-3 text-center shadow-lg">
+                        <p className="text-sm italic text-gray-400">
+                          {transcript ? `"${transcript}"` : "Micrófono en vivo..."}
                         </p>
-                      ) : (
-                        <p className="text-xs text-[#A9B2C3]">
-                          {isInVoiceCall 
-                            ? '🎙️ Te estoy escuchando. Habla cuando quieras.' 
-                            : 'Presiona Iniciar Voz en Vivo para conversar.'}
-                        </p>
-                      )}
+                      </div>
                     </div>
                   </div>
 
@@ -1669,67 +1608,63 @@ export default function LinnkProVoiceAssistant({
                   </div>
                 </div>
 
-                {/* Primary Call Controls (Mute Mic, Speaker Mute, End Call / Start Call) */}
-                <div className="flex items-center justify-around pt-1">
-                  {/* Toggle User Microphone */}
+                {/* Primary Call Controls (Silenciar, Finalizar (X), Altavoz) */}
+                <div className="flex items-center justify-around pt-2 pb-1">
+                  {/* Toggle User Microphone (Silenciar) */}
                   <button
                     id="linnkpro-voice-mic-toggle-btn"
                     onClick={() => setIsMicMuted(prev => !prev)}
-                    className={`flex flex-col items-center gap-1 transition ${
-                      isMicMuted ? 'text-[#E63946]' : 'text-[#A9B2C3] hover:text-white'
-                    }`}
+                    className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
                   >
-                    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center border transition ${
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
                       isMicMuted 
-                        ? 'bg-rose-950/70 border-[#E63946]/60 text-[#E63946]' 
-                        : 'bg-[#111827] border-[#232B3A] text-white'
+                        ? 'bg-red-950/80 border-[#E63946] text-[#E63946]' 
+                        : 'bg-[#121826] border-[#232B3A] text-white hover:border-[#E63946]/50'
                     }`}>
-                      {isMicMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                      {isMicMuted ? <MicOff className="w-6 h-6" /> : <MicOff className="w-6 h-6 text-gray-300" />}
                     </div>
-                    <span className="text-[10px] font-bold">{isMicMuted ? 'Micrófono Mudo' : 'Silenciar'}</span>
+                    <span className="text-xs font-semibold text-gray-400">Silenciar</span>
                   </button>
 
-                  {/* Main Call Action Button (Phone Call Start / Hang up) */}
+                  {/* Main Call Action Button (Finalizar con icono X rojo o Iniciar) */}
                   {isInVoiceCall ? (
                     <button
                       id="linnkpro-voice-end-call-btn"
                       onClick={endVoiceCall}
-                      className="flex flex-col items-center gap-1 group"
+                      className="flex flex-col items-center gap-1.5 group"
                     >
-                      <div className="w-14 h-14 rounded-3xl bg-gradient-to-r from-red-700 to-[#E63946] text-white flex items-center justify-center shadow-xl shadow-red-950/60 group-hover:scale-105 transition transform active:scale-95 ring-4 ring-red-500/20">
-                        <PhoneOff className="w-6 h-6 text-white" />
+                      <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95">
+                        <X className="w-8 h-8 text-white stroke-[2.5]" />
                       </div>
-                      <span className="text-[11px] font-black text-[#E63946] uppercase tracking-wider">Finalizar</span>
+                      <span className="text-xs font-bold text-white tracking-wide">Finalizar</span>
                     </button>
                   ) : (
                     <button
                       id="linnkpro-voice-start-call-btn"
                       onClick={startVoiceCall}
-                      className="flex flex-col items-center gap-1 group"
+                      className="flex flex-col items-center gap-1.5 group"
                     >
-                      <div className="w-14 h-14 rounded-3xl bg-gradient-to-r from-[#E63946] via-[#D62839] to-[#F4B400] text-white flex items-center justify-center shadow-xl shadow-red-950/60 group-hover:scale-105 transition transform active:scale-95 ring-4 ring-[#E63946]/30 animate-pulse">
-                        <PhoneCall className="w-6 h-6 text-white" />
+                      <div className="w-16 h-16 rounded-full bg-[#FF3B47] text-white flex items-center justify-center shadow-xl shadow-red-600/40 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
+                        <Mic className="w-8 h-8 text-white" />
                       </div>
-                      <span className="text-[11px] font-black text-white uppercase tracking-wider">Hablar en Vivo</span>
+                      <span className="text-xs font-bold text-white tracking-wide">Hablar</span>
                     </button>
                   )}
 
-                  {/* Toggle AI Speaker Voice Output */}
+                  {/* Toggle AI Speaker Voice Output (Altavoz) */}
                   <button
                     id="linnkpro-voice-speaker-toggle-btn"
                     onClick={() => setIsVoiceMuted(prev => !prev)}
-                    className={`flex flex-col items-center gap-1 transition ${
-                      isVoiceMuted ? 'text-[#F4B400]' : 'text-[#A9B2C3] hover:text-white'
-                    }`}
+                    className="flex flex-col items-center gap-1.5 transition text-[#A9B2C3] hover:text-white"
                   >
-                    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center border transition ${
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition ${
                       isVoiceMuted 
-                        ? 'bg-amber-950/70 border-[#F4B400]/60 text-[#F4B400]' 
-                        : 'bg-[#111827] border-[#232B3A] text-white'
+                        ? 'bg-amber-950/80 border-[#F4B400] text-[#F4B400]' 
+                        : 'bg-[#121826] border-[#232B3A] text-white hover:border-gray-500'
                     }`}>
-                      {isVoiceMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                      {isVoiceMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6 text-gray-300" />}
                     </div>
-                    <span className="text-[10px] font-bold">{isVoiceMuted ? 'Altavoz Mudo' : 'Altavoz'}</span>
+                    <span className="text-xs font-semibold text-gray-400">Altavoz</span>
                   </button>
                 </div>
               </div>

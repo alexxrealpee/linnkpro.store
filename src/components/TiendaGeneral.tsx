@@ -25,7 +25,7 @@ import {
   Plus
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
-import { fetchAllActiveProductsAndStores, saveOrder, fetchSystemSettings, checkIsStoreClosed } from '../lib/firebase';
+import { fetchAllActiveProductsAndStores, saveOrder, fetchSystemSettings, checkIsStoreClosed, findStoreForProduct } from '../lib/firebase';
 import { cleanColombianPhone, formatColombianPhoneWith57 } from './PublicProfile';
 import PwaLoadingScreen from './PwaLoadingScreen';
 
@@ -243,15 +243,21 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
 
   // Get list of unique store profiles with active products (memoized)
   const uniqueStores = useMemo(() => {
-    return (Object.values(profiles) as UserProfile[]).filter(profile => 
-      !checkIsStoreClosed(profile) && !profile.suspended && products.some(p => p.userId === profile.uid)
-    );
+    const storeMap = new Map<string, UserProfile>();
+    (Object.values(profiles) as UserProfile[]).forEach(profile => {
+      if (profile && profile.uid && !storeMap.has(profile.uid)) {
+        if (!checkIsStoreClosed(profile) && !profile.suspended && products.some(p => p.userId === profile.uid || p.storeUsername === profile.username)) {
+          storeMap.set(profile.uid, profile);
+        }
+      }
+    });
+    return Array.from(storeMap.values());
   }, [profiles, products]);
 
   // Filter & sort logic (food products prioritized first)
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
-      const profile = profiles[product.userId];
+      const profile = findStoreForProduct(product, profiles);
       if (!profile || checkIsStoreClosed(profile) || profile.suspended) return false;
 
       const matchesSearch = 
@@ -264,7 +270,7 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
       const matchesCategory = selectedCategory === 'all' || 
         (product.category && product.category.trim().toUpperCase() === selectedCategory.trim().toUpperCase());
       
-      const matchesStore = selectedStore === 'all' || product.userId === selectedStore;
+      const matchesStore = selectedStore === 'all' || product.userId === selectedStore || profile.uid === selectedStore;
 
       return matchesSearch && matchesCategory && matchesStore;
     }).sort((a, b) => {

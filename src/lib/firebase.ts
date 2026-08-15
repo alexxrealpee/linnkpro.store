@@ -1542,6 +1542,33 @@ export const DEFAULT_PLATFORM_STORES: Record<string, UserProfile> = {};
 
 export const DEFAULT_PLATFORM_PRODUCTS: ProductItem[] = [];
 
+// Helper to find a store profile for a product by userId, uid, username or storeName
+export function findStoreForProduct(product: { userId?: string; storeName?: string; storeUsername?: string }, profilesMap: Record<string, UserProfile>): UserProfile | null {
+  if (!product || !profilesMap) return null;
+  
+  if (product.userId && profilesMap[product.userId]) {
+    return profilesMap[product.userId];
+  }
+
+  const allProfiles = Object.values(profilesMap);
+  if (product.userId) {
+    const matched = allProfiles.find(p => p.uid === product.userId || p.username === product.userId);
+    if (matched) return matched;
+  }
+
+  if (product.storeUsername) {
+    const matched = allProfiles.find(p => p.username?.toLowerCase() === product.storeUsername?.toLowerCase());
+    if (matched) return matched;
+  }
+
+  if (product.storeName) {
+    const matched = allProfiles.find(p => p.displayName?.toLowerCase() === product.storeName?.toLowerCase());
+    if (matched) return matched;
+  }
+
+  return null;
+}
+
 // Fetch all active products and profiles from Firestore
 export async function fetchAllActiveProductsAndStores(): Promise<{ products: ProductItem[]; profiles: Record<string, UserProfile> }> {
   try {
@@ -1554,7 +1581,8 @@ export async function fetchAllActiveProductsAndStores(): Promise<{ products: Pro
       profilesSnapshot.forEach(doc => {
         const data = doc.data() as UserProfile;
         if (!data.suspended) {
-          profilesMap[doc.id] = { uid: doc.id, ...data };
+          const profileObj: UserProfile = { ...data, uid: data.uid || doc.id };
+          profilesMap[doc.id] = profileObj;
           openUserIds.push(doc.id);
         }
       });
