@@ -95,6 +95,7 @@ export default function LinnkProVoiceAssistant({
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [micAudioLevel, setMicAudioLevel] = useState(0);
+  const [listeningMode, setListeningMode] = useState<'continuous' | 'push_to_talk'>('continuous');
 
   // Chat stream messages
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -129,6 +130,8 @@ export default function LinnkProVoiceAssistant({
   const latestTranscriptRef = useRef<string>('');
   const isSpeakingRef = useRef<boolean>(false);
   const isMicMutedRef = useRef<boolean>(false);
+  const listeningModeRef = useRef<'continuous' | 'push_to_talk'>('continuous');
+  const lastRestartTimeRef = useRef<number>(0);
 
   // Helper to detect mobile device
   const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -137,6 +140,10 @@ export default function LinnkProVoiceAssistant({
   useEffect(() => {
     isInVoiceCallRef.current = isInVoiceCall;
   }, [isInVoiceCall]);
+
+  useEffect(() => {
+    listeningModeRef.current = listeningMode;
+  }, [listeningMode]);
 
   useEffect(() => {
     assistantStateRef.current = assistantState;
@@ -272,9 +279,9 @@ export default function LinnkProVoiceAssistant({
     }
   };
 
-  // Safe SpeechRecognition start & stop helpers (prevents InvalidStateError)
+  // Safe SpeechRecognition start & stop helpers (prevents InvalidStateError & mobile mic flapping)
   const safeStartRecognition = () => {
-    if (!recognitionRef.current || !isInVoiceCallRef.current || isRecognitionRunningRef.current) {
+    if (!recognitionRef.current || !isInVoiceCallRef.current || isRecognitionRunningRef.current || isSpeakingRef.current || assistantStateRef.current === 'processing' || isMicMutedRef.current) {
       return;
     }
     try {
@@ -292,18 +299,18 @@ export default function LinnkProVoiceAssistant({
   const safeStopRecognition = () => {
     if (!recognitionRef.current) return;
     try {
-      recognitionRef.current.stop();
+      recognitionRef.current.abort();
     } catch (e) {}
     isRecognitionRunningRef.current = false;
   };
 
-  // 7. Initialize Speech Recognition with Hands-Free Continuous VAD & Barge-in
+  // 7. Initialize Speech Recognition with Hands-Free VAD optimized for mobile & desktop
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      // On mobile devices (Chrome on Android / iOS), single utterance mode with auto-restart is far more stable
-      recognition.continuous = !isMobile;
+      // Continuous mode ensures Android Chrome and iOS Safari do not disconnect the microphone every 2 seconds
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
       recognition.lang = 'es-CO'; // Colombian Spanish
@@ -311,31 +318,21 @@ export default function LinnkProVoiceAssistant({
       recognition.onstart = () => {
         isRecognitionRunningRef.current = true;
         setMicPermissionError(null);
-        if (isInVoiceCallRef.current && !isSpeakingRef.current) {
-          setAssistantState('listening');
-        }
-      };
-
-      recognition.onspeechstart = () => {
-        // BARGE-IN INTERRUPTION: If AI is currently speaking and user speaks, stop AI immediately!
-        if (isSpeakingRef.current || assistantStateRef.current === 'speaking') {
-          stopAudioPlayback();
+        if (isInVoiceCallRef.current && !isSpeakingRef.current && assistantStateRef.current !== 'processing') {
           setAssistantState('listening');
         }
       };
 
       recognition.onresult = (event: any) => {
-        if (isMicMutedRef.current) return;
-
-        // If user speaks while AI is speaking, interrupt AI audio
-        if (isSpeakingRef.current || assistantStateRef.current === 'speaking') {
-          stopAudioPlayback();
-          setAssistantState('listening');
-        }
+        if (isMicMutedRef.current || isSpeakingRef.current || assistantStateRef.current === 'processing') return;
 
         let fullTranscript = '';
+        let isFinal = false;
         for (let i = 0; i < event.results.length; ++i) {
           fullTranscript += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            isFinal = true;
+          }
         }
 
         const trimmed = fullTranscript.trim();
@@ -348,25 +345,26 @@ export default function LinnkProVoiceAssistant({
             clearTimeout(silenceTimerRef.current);
           }
 
-          // Auto-send when user finishes speaking (1.2 seconds of silence)
+          // Auto-send when user finishes speaking (smooth pause detection)
+          const delay = isFinal ? 800 : 1300;
           silenceTimerRef.current = setTimeout(() => {
-            if (isInVoiceCallRef.current && latestTranscriptRef.current && assistantStateRef.current !== 'processing') {
+            if (isInVoiceCallRef.current && latestTranscriptRef.current && assistantStateRef.current === 'listening' && !isSpeakingRef.current) {
               const textToSend = latestTranscriptRef.current;
               latestTranscriptRef.current = '';
               setTranscript('');
               handleSendMessage(textToSend);
             }
-          }, 1250);
+          }, delay);
         }
       };
 
       recognition.onerror = (event: any) => {
-        if (event.error !== 'no-speech') {
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
           console.warn("Speech recognition notice:", event.error);
         }
         isRecognitionRunningRef.current = false;
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
-          setMicPermissionError('Permiso de micrófono denegado en tu navegador móvil. Toca el icono de configuración/candado en Chrome y autoriza el micrófono.');
+          setMicPermissionError('Permiso de micrófono denegado. Toca el candado en la barra de direcciones de tu navegador para autorizar el micrófono.');
           setIsInVoiceCall(false);
           isInVoiceCallRef.current = false;
           setAssistantState('idle');
@@ -376,13 +374,28 @@ export default function LinnkProVoiceAssistant({
 
       recognition.onend = () => {
         isRecognitionRunningRef.current = false;
-        // Automatically keep listening if the voice call is active
-        if (isInVoiceCallRef.current && !isSpeakingRef.current) {
-          setTimeout(() => {
-            if (isInVoiceCallRef.current && !isSpeakingRef.current) {
-              safeStartRecognition();
-            }
-          }, isMobile ? 80 : 150);
+        // In continuous hands-free mode: gently re-open ONLY if not speaking, not processing, and throttled (preventing Android flashing)
+        if (
+          isInVoiceCallRef.current &&
+          !isSpeakingRef.current &&
+          assistantStateRef.current === 'listening' &&
+          !isMicMutedRef.current &&
+          listeningModeRef.current === 'continuous'
+        ) {
+          const now = Date.now();
+          if (now - lastRestartTimeRef.current > 700) {
+            lastRestartTimeRef.current = now;
+            setTimeout(() => {
+              if (
+                isInVoiceCallRef.current &&
+                !isSpeakingRef.current &&
+                assistantStateRef.current === 'listening' &&
+                !isMicMutedRef.current
+              ) {
+                safeStartRecognition();
+              }
+            }, 300);
+          }
         } else if (!isInVoiceCallRef.current) {
           setAssistantState('idle');
         }
@@ -411,7 +424,7 @@ export default function LinnkProVoiceAssistant({
       }
       isRecognitionRunningRef.current = false;
     };
-  }, [isMobile]);
+  }, []);
 
   // 8. Start & End Real-Time Voice Call Session
   const startVoiceCall = async () => {
@@ -440,7 +453,9 @@ export default function LinnkProVoiceAssistant({
 
     stopAudioPlayback();
     initAudioAnalyser();
-    safeStartRecognition();
+    setTimeout(() => {
+      safeStartRecognition();
+    }, 150);
   };
 
   const endVoiceCall = () => {
@@ -456,22 +471,76 @@ export default function LinnkProVoiceAssistant({
     safeStopRecognition();
   };
 
+  // Interactive Central Mic Tap Handler (Interrupts AI or forces send/listen)
+  const handleCentralMicClick = () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(35);
+      }
+    } catch (e) {}
+
+    if (!isInVoiceCallRef.current) {
+      startVoiceCall();
+      return;
+    }
+
+    // 1. If AI is speaking -> User taps to interrupt immediately & start talking
+    if (isSpeakingRef.current || assistantStateRef.current === 'speaking') {
+      stopAudioPlayback();
+      setAssistantState('listening');
+      safeStartRecognition();
+      return;
+    }
+
+    // 2. If speech is already recognized in transcript -> Tap sends instantly
+    if (transcript.trim()) {
+      const textToSend = transcript.trim();
+      setTranscript('');
+      latestTranscriptRef.current = '';
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      handleSendMessage(textToSend);
+      return;
+    }
+
+    // 3. If in Push-to-Talk mode and idle/listening
+    if (listeningMode === 'push_to_talk') {
+      if (isRecognitionRunningRef.current) {
+        safeStopRecognition();
+      } else {
+        safeStartRecognition();
+      }
+      return;
+    }
+
+    // 4. In Continuous mode: If listening in silence -> Re-arm recognition cleanly once
+    safeStopRecognition();
+    setTimeout(() => {
+      safeStartRecognition();
+    }, 150);
+  };
+
   // 9. Play audio response with PCM Web Audio or Web Speech API
   const playVoiceResponse = async (text: string, pcmBase64?: string) => {
     if (isVoiceMuted) {
       if (isInVoiceCallRef.current) {
         setAssistantState('listening');
+        setTimeout(() => {
+          if (isInVoiceCallRef.current && assistantStateRef.current === 'listening') {
+            safeStartRecognition();
+          }
+        }, 250);
       } else {
         setAssistantState('idle');
       }
       return;
     }
 
+    safeStopRecognition();
     stopAudioPlayback();
     isSpeakingRef.current = true;
     setAssistantState('speaking');
 
-    // Callback when AI finishes speaking -> resume listening immediately in hands-free loop
+    // Callback when AI finishes speaking -> resume listening with grace period
     const onSpeechComplete = () => {
       isSpeakingRef.current = false;
       currentAudioSourceRef.current = null;
@@ -479,7 +548,11 @@ export default function LinnkProVoiceAssistant({
         setAssistantState('listening');
         setTranscript('');
         latestTranscriptRef.current = '';
-        safeStartRecognition();
+        setTimeout(() => {
+          if (isInVoiceCallRef.current && !isSpeakingRef.current && assistantStateRef.current === 'listening') {
+            safeStartRecognition();
+          }
+        }, 350);
       } else {
         setAssistantState('idle');
       }
@@ -525,8 +598,9 @@ export default function LinnkProVoiceAssistant({
       }
     }
 
-    // Fallback: Web Speech API synthesis (Female Voice strictly)
+    // Fallback: Enhanced Web Speech API synthesis (Natural, Neural, Warm Female Voice)
     if ('speechSynthesis' in window) {
+      // Natural human phonetic formatting for fluent reading
       const cleanSpeech = text
         .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
         .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
@@ -535,50 +609,67 @@ export default function LinnkProVoiceAssistant({
         .replace(/\bd[oó]lar\b/gi, 'peso')
         .replace(/[*_#`~]/g, '')
         .replace(/https?:\/\/\S+/g, '')
+        .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
+        .replace(/([0-9]+)\.500\s*pesos/gi, '$1 mil quinientos pesos')
+        .replace(/¡/g, '')
+        .replace(/!/g, '. ')
+        .replace(/\s+/g, ' ')
         .trim();
+
       const utterance = new SpeechSynthesisUtterance(cleanSpeech);
       utterance.lang = 'es-CO';
-      utterance.rate = 1.05;
-      utterance.pitch = 1.08; // Natural pleasant female pitch
+      utterance.rate = 0.97; // Natural, conversational human pacing
+      utterance.pitch = 1.0; // Warm, natural human pitch without robotic distortion
 
       const voices = window.speechSynthesis.getVoices();
-      const spanishVoices = voices.filter(v => v.lang.includes('es-') || v.lang.startsWith('es'));
+      const spanishVoices = voices.filter(v => v.lang.toLowerCase().includes('es') || v.lang.toLowerCase().startsWith('es'));
 
-      // Female voice identifiers across Windows, macOS, iOS, Android and Chrome
-      const femaleKeywords = [
-        'female', 'mujer', 'monica', 'paulina', 'sabina', 'helena', 'lucia', 'laura',
-        'salome', 'soledad', 'carmen', 'elena', 'victoria', 'alva', 'marta', 'zira',
-        'maria', 'francisca', 'mia', 'sofia', 'camila', 'valentina', 'rosa', 'lupe',
-        'penelope', 'conchita', 'google español'
+      // Female and high-quality neural voice identifiers across Windows, macOS, iOS, Android and Chrome
+      const neuralKeywords = ['natural', 'neural', 'online', 'enhanced', 'premium', 'high quality'];
+      const preferredNames = [
+        'salome', 'dalia', 'paloma', 'monica', 'mónica', 'paulina', 'helena', 'lucia', 'lucía',
+        'laura', 'sofia', 'sofía', 'sabina', 'camila', 'valentina', 'victoria', 'google español',
+        'es-co', 'es_co'
       ];
       const maleKeywords = [
         'male', 'hombre', 'jorge', 'diego', 'miguel', 'carlos', 'pablo', 'raul',
-        'david', 'alvaro', 'enrique', 'juan', 'manuel', 'pablo', 'antonio'
+        'david', 'alvaro', 'enrique', 'juan', 'manuel', 'antonio'
       ];
 
-      // 1. First priority: Spanish voice matching female keywords and NOT matching male keywords
-      let femaleVoice = spanishVoices.find(v => {
+      // 1. Top priority: Neural/Natural Spanish female voice (Microsoft Natural, Google, Apple Enhanced)
+      let bestVoice = spanishVoices.find(v => {
         const nameLower = v.name.toLowerCase();
-        const isFemale = femaleKeywords.some(kw => nameLower.includes(kw));
+        const isNeural = neuralKeywords.some(kw => nameLower.includes(kw));
+        const isPref = preferredNames.some(kw => nameLower.includes(kw));
         const isMale = maleKeywords.some(kw => nameLower.includes(kw));
-        return isFemale && !isMale;
+        return (isNeural || isPref) && !isMale;
       });
 
-      // 2. Second priority: Spanish voice that is at least not explicitly male
-      if (!femaleVoice) {
-        femaleVoice = spanishVoices.find(v => {
+      // 2. Second priority: Any Spanish voice matching preferred female names
+      if (!bestVoice) {
+        bestVoice = spanishVoices.find(v => {
+          const nameLower = v.name.toLowerCase();
+          const isPref = preferredNames.some(kw => nameLower.includes(kw));
+          const isMale = maleKeywords.some(kw => nameLower.includes(kw));
+          return isPref && !isMale;
+        });
+      }
+
+      // 3. Third priority: Any Spanish voice that is not explicitly male
+      if (!bestVoice) {
+        bestVoice = spanishVoices.find(v => {
           const nameLower = v.name.toLowerCase();
           return !maleKeywords.some(kw => nameLower.includes(kw));
         });
       }
 
-      // 3. Fallback to any Spanish voice
-      if (!femaleVoice && spanishVoices.length > 0) {
-        femaleVoice = spanishVoices[0];
+      // 4. Fallback to any available Spanish voice
+      if (!bestVoice && spanishVoices.length > 0) {
+        bestVoice = spanishVoices[0];
       }
 
-      if (femaleVoice) {
-        utterance.voice = femaleVoice;
+      if (bestVoice) {
+        utterance.voice = bestVoice;
       }
 
       utterance.onend = onSpeechComplete;
@@ -744,6 +835,7 @@ export default function LinnkProVoiceAssistant({
     if (!textToSend || !textToSend.trim()) return;
 
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    safeStopRecognition();
     stopAudioPlayback();
     setTranscript('');
     latestTranscriptRef.current = '';
@@ -1184,17 +1276,50 @@ export default function LinnkProVoiceAssistant({
                     }`}></div>
                   </div>
 
-                  {/* 1. Status Indicator Pill */}
-                  <div className="flex justify-center z-10 pt-2">
-                    <div className="px-5 py-2 rounded-full bg-[#0D111D]/80 border border-[#232B3A] text-xs font-semibold flex items-center gap-2 shadow-xl backdrop-blur">
-                      <Mic className="w-4 h-4 text-[#E63946]" />
-                      <span className="text-gray-300">
-                        {assistantState === 'listening' ? 'Escuchando... habla con libertad' :
+                  {/* 1. Status Indicator Pill & Listening Mode Switcher */}
+                  <div className="flex flex-col items-center justify-center z-10 pt-1 gap-2">
+                    <div className="px-4 py-1.5 rounded-full bg-[#0D111D]/90 border border-[#232B3A] text-xs font-semibold flex items-center gap-2 shadow-xl backdrop-blur">
+                      <Mic className={`w-3.5 h-3.5 ${assistantState === 'listening' ? 'text-[#E63946] animate-pulse' : 'text-gray-400'}`} />
+                      <span className="text-gray-200">
+                        {assistantState === 'listening' ? (listeningMode === 'continuous' ? 'Escuchando... habla con libertad' : 'Micrófono listo • Toca para hablar') :
                          assistantState === 'speaking' ? 'LinnkPro respondiendo...' :
-                         assistantState === 'processing' ? 'Procesando tu solicitud...' :
+                         assistantState === 'processing' ? 'Procesando tu pedido...' :
                          'En espera'}
                       </span>
-                      <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping ml-1"></span>
+                      {assistantState === 'listening' && (
+                        <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping ml-0.5"></span>
+                      )}
+                    </div>
+
+                    {/* Mode selector pill: Manos libres vs Pulsar para hablar */}
+                    <div className="inline-flex p-0.5 rounded-full bg-[#0D111D] border border-[#232B3A] text-[11px] shadow">
+                      <button
+                        onClick={() => {
+                          setListeningMode('continuous');
+                          if (isInVoiceCall && !isSpeakingRef.current && !isMicMuted) {
+                            safeStartRecognition();
+                          }
+                        }}
+                        className={`px-3 py-0.5 rounded-full font-medium transition ${
+                          listeningMode === 'continuous'
+                            ? 'bg-[#E63946] text-white shadow-sm font-bold'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        🎙️ Manos libres
+                      </button>
+                      <button
+                        onClick={() => {
+                          setListeningMode('push_to_talk');
+                        }}
+                        className={`px-3 py-0.5 rounded-full font-medium transition ${
+                          listeningMode === 'push_to_talk'
+                            ? 'bg-[#E63946] text-white shadow-sm font-bold'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        👆 Pulsar para hablar
+                      </button>
                     </div>
                   </div>
 
@@ -1214,7 +1339,7 @@ export default function LinnkProVoiceAssistant({
                   )}
 
                   {/* 2. Central Mic Button with Soundwaves on Sides and Arc Glow Ring */}
-                  <div className="flex flex-col items-center justify-center my-auto py-6 z-10">
+                  <div className="flex flex-col items-center justify-center my-auto py-4 z-10">
                     <div className="relative flex items-center justify-center gap-4 sm:gap-6">
                       {/* Left Audio Waveform Bars */}
                       <div className="flex items-center gap-1.5 opacity-40">
@@ -1225,19 +1350,24 @@ export default function LinnkProVoiceAssistant({
                         <span className={`w-1.5 bg-gray-500 rounded-full transition-all duration-200 ${assistantState === 'listening' ? 'h-6 bg-[#E63946]' : 'h-3'}`}></span>
                       </div>
 
-                      {/* Main Mic Button with Arc and Red Radial Glow */}
+                      {/* Main Interactive Mic Button with Arc and Red Radial Glow */}
                       <div className="relative flex items-center justify-center">
                         {/* Outer Arc Highlight Ring */}
-                        <div className="absolute -inset-3 rounded-full border-2 border-transparent border-t-[#E63946] border-r-[#E63946]/80 animate-spin [animation-duration:4s] opacity-90"></div>
+                        <div className={`absolute -inset-3 rounded-full border-2 border-transparent border-t-[#E63946] border-r-[#E63946]/80 ${assistantState === 'listening' ? 'animate-spin [animation-duration:3s]' : ''} opacity-90`}></div>
                         <div className="absolute -inset-3 rounded-full border border-red-500/20"></div>
 
                         {/* Red Radial Ambient Glow */}
-                        <div className="absolute inset-0 rounded-full bg-[#E63946] blur-xl opacity-40 animate-pulse"></div>
+                        <div className={`absolute inset-0 rounded-full bg-[#E63946] blur-xl ${assistantState === 'listening' ? 'opacity-50 animate-pulse' : 'opacity-25'}`}></div>
 
-                        {/* Solid Red Center Mic Button */}
-                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-[#FF3B47] to-[#C1121F] flex items-center justify-center shadow-2xl shadow-red-600/50 relative z-10">
-                          <Mic className="w-10 h-10 sm:w-12 sm:h-12 text-white stroke-[2.5]" />
-                        </div>
+                        {/* Solid Red Center Mic Button (Interactive Touch/Click) */}
+                        <button
+                          id="linnkpro-interactive-center-mic"
+                          onClick={handleCentralMicClick}
+                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-[#FF3B47] to-[#C1121F] flex items-center justify-center shadow-2xl shadow-red-600/50 relative z-10 active:scale-95 hover:scale-105 transition-transform duration-150 cursor-pointer group focus:outline-none focus:ring-4 focus:ring-red-500/40"
+                          title={assistantState === 'speaking' ? 'Toca para interrumpir' : transcript ? 'Toca para enviar' : 'Micrófono activo'}
+                        >
+                          <Mic className={`w-10 h-10 sm:w-12 sm:h-12 text-white stroke-[2.5] ${assistantState === 'listening' ? 'animate-pulse' : ''}`} />
+                        </button>
                       </div>
 
                       {/* Right Audio Waveform Bars */}
@@ -1250,18 +1380,45 @@ export default function LinnkProVoiceAssistant({
                       </div>
                     </div>
 
-                    {/* Live Transcript Bubble matching reference ("Tú estás diciendo:") */}
-                    <div className="w-full max-w-sm mt-8 px-2 flex flex-col items-center">
+                    {/* Live Transcript Bubble */}
+                    <div className="w-full max-w-sm mt-5 px-2 flex flex-col items-center">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0D111D] border border-[#232B3A] text-[11px] font-bold text-gray-300 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-[#E63946] animate-ping"></span>
-                        <span>Tú estás diciendo:</span>
+                        <span className={`w-2 h-2 rounded-full ${transcript ? 'bg-emerald-400 animate-ping' : 'bg-[#E63946] animate-pulse'}`}></span>
+                        <span>{transcript ? '🟢 Detectando tu voz:' : '🎙️ Micrófono en vivo:'}</span>
                       </div>
 
-                      <div className="w-full bg-[#0D111D]/90 border border-[#232B3A] rounded-2xl px-5 py-3 text-center shadow-lg">
-                        <p className="text-sm italic text-gray-400">
-                          {transcript ? `"${transcript}"` : "Micrófono en vivo..."}
+                      <div className="w-full bg-[#0D111D]/90 border border-[#232B3A] rounded-2xl px-4 py-3 text-center shadow-lg">
+                        <p className="text-sm font-medium text-white min-h-[1.5rem] flex items-center justify-center">
+                          {transcript ? (
+                            <span>"{transcript}"</span>
+                          ) : (
+                            <span className="text-gray-400 italic text-xs">
+                              {assistantState === 'speaking' 
+                                ? '🔊 LinnkPro te está respondiendo... (Toca el micro para hablar)' 
+                                : assistantState === 'processing' 
+                                ? '⏳ Pensando tu respuesta...' 
+                                : 'Te escucho... habla o toca el micrófono para enviar.'}
+                            </span>
+                          )}
                         </p>
                       </div>
+
+                      {/* Instant Send Badge if transcript detected */}
+                      {transcript.trim() && (
+                        <button
+                          onClick={() => {
+                            const text = transcript.trim();
+                            setTranscript('');
+                            latestTranscriptRef.current = '';
+                            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+                            handleSendMessage(text);
+                          }}
+                          className="mt-2.5 px-4 py-1.5 rounded-full bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold shadow-lg shadow-red-600/30 flex items-center gap-1.5 active:scale-95 transition"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Enviar ahora</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 

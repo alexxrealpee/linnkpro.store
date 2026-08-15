@@ -277,7 +277,7 @@ Formatos válidos para:
       }
 
       const ai = getGeminiClient();
-      // Format prices to pesos so TTS never speaks 'dólares'
+      // Format prices and natural human pauses
       const cleanText = text
         .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
         .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
@@ -286,24 +286,44 @@ Formatos válidos para:
         .replace(/\bd[oó]lar\b/gi, 'peso')
         .replace(/[*_#`~]/g, '')
         .replace(/https?:\/\/\S+/g, '')
+        .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
         .trim()
-        .substring(0, 500);
+        .substring(0, 450);
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-tts-preview',
-        contents: [{ parts: [{ text: cleanText }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Aoede' }
+      const candidateModels = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-exp',
+        'gemini-3.1-flash-tts-preview'
+      ];
+
+      let audioPart: any = null;
+
+      for (const modelName of candidateModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [{ parts: [{ text: cleanText }] }],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: 'Aoede' }
+                }
+              }
             }
-          }
-        }
-      });
+          });
 
-      const audioPart = response.candidates?.[0]?.content?.parts?.[0];
-      if (audioPart && audioPart.inlineData && audioPart.inlineData.data) {
+          audioPart = response.candidates?.[0]?.content?.parts?.[0];
+          if (audioPart?.inlineData?.data) {
+            break;
+          }
+        } catch (err: any) {
+          // Continue to next candidate model
+        }
+      }
+
+      if (audioPart?.inlineData?.data) {
         res.json({
           audio: audioPart.inlineData.data,
           mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000'
