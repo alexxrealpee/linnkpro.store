@@ -251,7 +251,7 @@ Formatos válidos para:
     }
   });
 
-  // API Route: LinnkPro AI Voice Assistant (supports ChatGPT and Gemini)
+  // API Route: LinnkPro AI Voice Assistant (Powered strictly by OpenAI ChatGPT GPT-4o / GPT-4o-mini)
   const handleVoiceAssistantRequest = async (req: express.Request, res: express.Response) => {
     const { message, history, catalogContext } = req.body;
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -263,8 +263,7 @@ Formatos válidos para:
 
     try {
       const openai = getOpenAIClient();
-      if (openai && !isOpneAIQuotaExhausted()) {
-        // Priority 1: OpenAI ChatGPT (GPT-4o-mini / GPT-4o)
+      if (openai) {
         try {
           const chatGPTResult = await processOpenAIVoiceAssistantMessage(
             openai,
@@ -275,41 +274,19 @@ Formatos válidos para:
           res.json(chatGPTResult);
           return;
         } catch (chatGPTErr: any) {
-          if (chatGPTErr?.status === 429 || chatGPTErr?.code === 'insufficient_quota' || chatGPTErr?.message?.includes('credits') || chatGPTErr?.message?.includes('429')) {
-            markOpenAIQuotaExhausted();
-            console.info("OpenAI API key has no remaining credits (429). Seamlessly routing to Gemini AI.");
-          } else {
-            console.warn("OpenAI ChatGPT processing failed, trying secondary AI model:", chatGPTErr);
-          }
+          console.warn("OpenAI ChatGPT processing notice, using natural language engine:", chatGPTErr?.message || chatGPTErr);
         }
       }
 
-      // Priority 2: Gemini models with smart fallback
-      let ai: GoogleGenAI | null = null;
-      try {
-        ai = getGeminiClient();
-      } catch (e) {
-        console.warn("Gemini client initialization skipped or missing API key, using smart local assistant fallback.");
-      }
-
-      if (ai) {
-        const result = await processVoiceAssistantMessage(
-          ai,
-          message.trim(),
-          history || [],
-          safeContext
-        );
-        res.json(result);
-      } else {
-        const fallbackResult = processFallbackVoiceAssistantMessage(
-          message.trim(),
-          history || [],
-          safeContext
-        );
-        res.json(fallbackResult);
-      }
+      // Natural language conversational fallback with full tool execution and store awareness
+      const fallbackResult = processFallbackVoiceAssistantMessage(
+        message.trim(),
+        history || [],
+        safeContext
+      );
+      res.json(fallbackResult);
     } catch (error: any) {
-      console.error("Error in LinnkPro AI Voice Assistant endpoint, serving fallback response:", error);
+      console.error("Error in LinnkPro AI Voice Assistant endpoint, serving natural fallback response:", error);
       const fallbackResult = processFallbackVoiceAssistantMessage(
         message.trim(),
         history || [],
@@ -319,8 +296,8 @@ Formatos válidos para:
     }
   };
 
-  app.post('/api/gemini/voice-assistant', handleVoiceAssistantRequest);
   app.post('/api/voice-assistant', handleVoiceAssistantRequest);
+  app.post('/api/gemini/voice-assistant', handleVoiceAssistantRequest); // Endpoint alias for backward compatibility
 
   // API Route: OpenAI Realtime Voice WebRTC Session (Secure Ephemeral Token Provisioning)
   app.post('/api/realtime/session', async (req, res) => {
@@ -332,7 +309,7 @@ Formatos válidos para:
     await createRealtimeSessionHandler(req, res, apiKey);
   });
 
-  // API Route: LinnkPro AI Voice Text-to-Speech (TTS) (supports OpenAI TTS and Gemini TTS)
+  // API Route: LinnkPro AI Voice Text-to-Speech (TTS) (Powered strictly by OpenAI High Definition TTS)
   const handleTTSRequest = async (req: express.Request, res: express.Response) => {
     try {
       const { text } = req.body;
@@ -341,7 +318,6 @@ Formatos válidos para:
         return;
       }
 
-      // Format prices and natural human pauses
       const cleanText = text
         .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
         .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
@@ -354,77 +330,27 @@ Formatos válidos para:
         .trim()
         .substring(0, 450);
 
-      // Check OpenAI TTS first if key is present and has quota
+      // OpenAI High Definition Natural TTS
       const openai = getOpenAIClient();
-      if (openai && !isOpneAIQuotaExhausted()) {
+      if (openai) {
         try {
           const ttsResult = await generateOpenAITTS(openai, cleanText);
           res.json(ttsResult);
           return;
         } catch (oErr: any) {
-          if (oErr?.status === 429 || oErr?.code === 'insufficient_quota' || oErr?.message?.includes('credits') || oErr?.message?.includes('429')) {
-            markOpenAIQuotaExhausted();
-          } else {
-            console.warn("OpenAI TTS speech synthesis failed, falling back to Gemini / Web Speech:", oErr);
-          }
+          console.warn("OpenAI TTS synthesis note, using browser natural voice fallback:", oErr?.message || oErr);
         }
       }
 
-      let ai: GoogleGenAI | null = null;
-      try {
-        ai = getGeminiClient();
-      } catch (e) {}
-
-      if (ai) {
-        const candidateModels = [
-          'gemini-3.1-flash-tts-preview',
-          'gemini-2.5-flash'
-        ];
-
-        let audioPart: any = null;
-
-        for (const modelName of candidateModels) {
-          try {
-            const response = await ai.models.generateContent({
-              model: modelName,
-              contents: [{ parts: [{ text: cleanText }] }],
-              config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Aoede' }
-                  }
-                }
-              }
-            });
-
-            audioPart = response.candidates?.[0]?.content?.parts?.[0];
-            if (audioPart?.inlineData?.data) {
-              break;
-            }
-          } catch (err: any) {
-            // Continue to next candidate model
-          }
-        }
-
-        if (audioPart?.inlineData?.data) {
-          res.json({
-            audio: audioPart.inlineData.data,
-            mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000'
-          });
-          return;
-        }
-      }
-
-      res.status(200).json({ fallback: true });
+      // Seamless fallback to browser natural speech synthesis
+      res.status(200).json({ fallback: true, message: "Browser neural voice active" });
     } catch (error: any) {
-      // Seamlessly fallback to browser Web Speech API without noisy error logs
-      res.status(200).json({ fallback: true, message: "Browser TTS fallback active" });
+      res.status(200).json({ fallback: true, message: "Browser neural voice active" });
     }
   };
 
-  app.post('/api/gemini/tts', handleTTSRequest);
   app.post('/api/tts', handleTTSRequest);
+  app.post('/api/gemini/tts', handleTTSRequest); // Endpoint alias for backward compatibility
 
   // Serve static files / Vite middleware
   if (process.env.NODE_ENV !== 'production') {

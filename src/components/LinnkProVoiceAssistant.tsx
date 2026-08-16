@@ -1089,8 +1089,8 @@ export default function LinnkProVoiceAssistant({
       let result: any = null;
 
       try {
-        // Call backend voice assistant endpoint
-        const response = await fetch('/api/gemini/voice-assistant', {
+        // Call backend voice assistant endpoint (ChatGPT GPT-4o)
+        const response = await fetch('/api/voice-assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1186,10 +1186,10 @@ export default function LinnkProVoiceAssistant({
 
       setMessages(prev => [...prev, assistantMsg]);
 
-      // Request Gemini TTS audio or fallback to Web Speech API
+      // Request OpenAI High Definition TTS audio or fallback to Web Speech API
       if (!isVoiceMuted) {
         try {
-          const ttsRes = await fetch('/api/gemini/tts', {
+          const ttsRes = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: result.speechText || aiReplyText })
