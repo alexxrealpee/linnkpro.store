@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Store, 
@@ -253,6 +253,49 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
     });
     return Array.from(storeMap.values());
   }, [profiles, products]);
+
+  // Auto-scroll store carousel slowly towards the left
+  const storesScrollRef = useRef<HTMLDivElement>(null);
+  const isStoresUserInteractingRef = useRef<boolean>(false);
+  const storesResumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const container = storesScrollRef.current;
+    if (!container || uniqueStores.length === 0) return;
+
+    let animationFrameId: number;
+    let lastTime = performance.now();
+
+    const scrollLoop = (currentTime: number) => {
+      const delta = Math.min(currentTime - lastTime, 50);
+      lastTime = currentTime;
+
+      if (!isStoresUserInteractingRef.current && container) {
+        // Slow, elegant auto-scroll speed (~26px per second)
+        const scrollIncrement = 0.028 * delta;
+        const maxScroll = container.scrollWidth - container.clientWidth;
+
+        if (maxScroll > 2) {
+          if (container.scrollLeft >= maxScroll - 1) {
+            container.scrollLeft = 0;
+          } else {
+            container.scrollLeft += scrollIncrement;
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(scrollLoop);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      if (storesResumeTimeoutRef.current) {
+        clearTimeout(storesResumeTimeoutRef.current);
+      }
+    };
+  }, [uniqueStores]);
 
   // Filter & sort logic (food products prioritized first)
   const filteredProducts = useMemo(() => {
@@ -681,7 +724,45 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
                 )}
               </div>
 
-              <div className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto pb-1 pt-1 px-1 hide-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-x pan-y' }}>
+              <div 
+                ref={storesScrollRef}
+                onMouseEnter={() => {
+                  isStoresUserInteractingRef.current = true;
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                }}
+                onMouseLeave={() => {
+                  isStoresUserInteractingRef.current = false;
+                }}
+                onTouchStart={() => {
+                  isStoresUserInteractingRef.current = true;
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                }}
+                onTouchEnd={() => {
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                  storesResumeTimeoutRef.current = setTimeout(() => {
+                    isStoresUserInteractingRef.current = false;
+                  }, 2500);
+                }}
+                onPointerDown={() => {
+                  isStoresUserInteractingRef.current = true;
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                }}
+                onPointerUp={() => {
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                  storesResumeTimeoutRef.current = setTimeout(() => {
+                    isStoresUserInteractingRef.current = false;
+                  }, 2500);
+                }}
+                onWheel={() => {
+                  isStoresUserInteractingRef.current = true;
+                  if (storesResumeTimeoutRef.current) clearTimeout(storesResumeTimeoutRef.current);
+                  storesResumeTimeoutRef.current = setTimeout(() => {
+                    isStoresUserInteractingRef.current = false;
+                  }, 2500);
+                }}
+                className="flex items-center gap-3.5 sm:gap-5 overflow-x-auto pb-1 pt-1 px-1 hide-scrollbar" 
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-x pan-y' }}
+              >
                 {/* All Stores Pill Button */}
                 <button
                   onClick={() => setSelectedStore('all')}
