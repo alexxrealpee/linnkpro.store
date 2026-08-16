@@ -235,7 +235,7 @@ HERRAMIENTAS EN TIEMPO REAL:
               type: "server_vad",
               threshold: 0.5,
               prefix_padding_ms: 300,
-              silence_duration_ms: 600,
+              silence_duration_ms: 800,
               create_response: true
             }
           })
@@ -243,6 +243,9 @@ HERRAMIENTAS EN TIEMPO REAL:
 
         if (response.ok) {
           sessionData = await response.json();
+          if (sessionData && !sessionData.model) {
+            sessionData.model = modelName;
+          }
           break;
         } else {
           const errText = await response.text();

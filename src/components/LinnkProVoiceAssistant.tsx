@@ -5,48 +5,32 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  Mic,
-  MicOff,
-  Volume2,
-  VolumeX,
-  Sparkles,
-  ShoppingBag,
-  Store,
-  X,
-  Send,
-  CheckCircle2,
-  Clock,
-  Truck,
-  Plus,
-  Minus,
-  Trash2,
-  MapPin,
-  Phone,
-  ArrowRight,
+import { 
+  Mic, 
+  MicOff, 
+  Volume2, 
+  VolumeX, 
+  X, 
+  MessageSquare, 
+  ShoppingBag, 
+  Plus, 
+  Minus, 
+  Trash2, 
+  Send, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2, 
+  Sparkles, 
+  ChefHat, 
+  Radio, 
   RefreshCw,
-  Bot,
-  AlertCircle,
-  MessageSquare,
-  PhoneCall,
-  PhoneOff,
-  Radio,
-  ChevronDown,
-  AudioWaveform,
-  AudioLines,
-  Check,
-  Loader2,
-  ChefHat,
-  BookOpen,
-  Star,
-  ConciergeBell
+  ArrowRight
 } from 'lucide-react';
 import { ProductItem, UserProfile, OrderItem } from '../types';
 import { 
   fetchAllActiveProductsAndStores, 
   fetchSystemSettings, 
-  saveOrder, 
-  checkIsStoreClosed,
+  checkIsStoreClosed, 
   findStoreForProduct,
   DEFAULT_PLATFORM_PRODUCTS, 
   DEFAULT_PLATFORM_STORES 
@@ -55,21 +39,18 @@ import {
   getStoredCart, 
   addProductToCart, 
   updateCartQuantity, 
-  removeProductFromCart, 
   clearAllCart, 
   calculateCartSummary, 
   GeneralCartItem, 
   CART_UPDATED_EVENT 
 } from '../lib/cartHelper';
-import { RealtimeMeseroManager } from '../lib/realtimeMeseroAgent';
+import { RealtimeMeseroManager, RealtimeAssistantState } from '../lib/realtimeMeseroAgent';
 
 interface LinnkProVoiceAssistantProps {
   onNavigateToStore?: (username: string) => void;
   onNavigateToTienda?: () => void;
   activeUsername?: string | null;
 }
-
-type AssistantVoiceState = 'idle' | 'listening' | 'processing' | 'speaking';
 
 interface ChatMessage {
   id: string;
@@ -87,86 +68,43 @@ export default function LinnkProVoiceAssistant({
   onNavigateToTienda,
   activeUsername
 }: LinnkProVoiceAssistantProps) {
-  // Modal and real-time call states
+  // Modal & Tab State
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [showFloatingTooltip, setShowFloatingTooltip] = useState(true);
-  const [isInVoiceCall, setIsInVoiceCall] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'call'>('chat');
+  const [activeTab, setActiveTab] = useState<'call' | 'chat'>('call');
   const [callDuration, setCallDuration] = useState(0);
 
-  // Assistant states
-  const [assistantState, setAssistantState] = useState<AssistantVoiceState>('idle');
+  // Realtime Voice Assistant state (WebRTC + OpenAI Realtime gpt-realtime-2.1)
+  const [assistantState, setAssistantState] = useState<RealtimeAssistantState>('idle');
   const [transcript, setTranscript] = useState('');
   const [inputText, setInputText] = useState('');
-  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
-  const [micAudioLevel, setMicAudioLevel] = useState(0);
-  const [listeningMode, setListeningMode] = useState<'continuous' | 'push_to_talk'>('continuous');
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
 
-  // Chat stream messages with exact wording from design image
+  // Chat message stream
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       sender: 'assistant',
-      text: '¡Hola! Soy tu mesero IA 👋\n¿En qué puedo ayudarte hoy?',
+      text: '¡Hola! Soy iAmesero, tu mesera virtual en LinnkPro. ¿Qué se te antoja ordenar hoy?',
       timestamp: new Date()
     }
   ]);
 
-  // Catalog and system data cache with instant preloaded defaults
+  // Catalog & Cart Context
   const [catalogProducts, setCatalogProducts] = useState<ProductItem[]>(DEFAULT_PLATFORM_PRODUCTS);
   const [catalogStores, setCatalogStores] = useState<Record<string, UserProfile>>(DEFAULT_PLATFORM_STORES);
   const [systemDeliveryFee, setSystemDeliveryFee] = useState<number>(4000);
   const [cart, setCart] = useState<GeneralCartItem[]>(getStoredCart());
   const [isOrdering, setIsOrdering] = useState(false);
-  const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
 
-  // Audio & Speech recognition refs
-  const recognitionRef = useRef<any>(null);
-  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-
-  // Real-time conversation loop & VAD refs
-  const isInVoiceCallRef = useRef<boolean>(false);
-  const isRecognitionRunningRef = useRef<boolean>(false);
-  const assistantStateRef = useRef<AssistantVoiceState>('idle');
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const latestTranscriptRef = useRef<string>('');
-  const isSpeakingRef = useRef<boolean>(false);
-  const isMicMutedRef = useRef<boolean>(false);
-  const listeningModeRef = useRef<'continuous' | 'push_to_talk'>('continuous');
-  const lastRestartTimeRef = useRef<number>(0);
+  // Realtime Manager Reference
   const realtimeManagerRef = useRef<RealtimeMeseroManager | null>(null);
-
-  // Helper to detect mobile device
-  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-  // Synchronize refs with state for asynchronous event handlers
-  useEffect(() => {
-    isInVoiceCallRef.current = isInVoiceCall;
-  }, [isInVoiceCall]);
-
-  useEffect(() => {
-    listeningModeRef.current = listeningMode;
-  }, [listeningMode]);
-
-  useEffect(() => {
-    assistantStateRef.current = assistantState;
-  }, [assistantState]);
-
-  useEffect(() => {
-    isMicMutedRef.current = isMicMuted;
-  }, [isMicMuted]);
-
-  // Automatically end voice call when user switches to chat mode
-  useEffect(() => {
-    if (activeTab === 'chat' && isInVoiceCallRef.current) {
-      endVoiceCall();
-    }
-  }, [activeTab]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const isInVoiceCallRef = useRef<boolean>(false);
 
   // 1. Sync Cart across events
   useEffect(() => {
@@ -203,7 +141,6 @@ export default function LinnkProVoiceAssistant({
           return true;
         });
 
-        // Fallback: if all products were filtered out, keep all active products
         if (onlyOpenProducts.length === 0 && catalogData.products.length > 0) {
           onlyOpenProducts = catalogData.products.filter(p => p.active !== false);
         }
@@ -226,7 +163,7 @@ export default function LinnkProVoiceAssistant({
   // 3. Call Duration Timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isInVoiceCall) {
+    if (assistantState !== 'idle' && assistantState !== 'error') {
       interval = setInterval(() => {
         setCallDuration(prev => prev + 1);
       }, 1000);
@@ -234,7 +171,7 @@ export default function LinnkProVoiceAssistant({
       setCallDuration(0);
     }
     return () => clearInterval(interval);
-  }, [isInVoiceCall]);
+  }, [assistantState]);
 
   // 4. Scroll to bottom of chat
   useEffect(() => {
@@ -245,969 +182,193 @@ export default function LinnkProVoiceAssistant({
     }
   }, [messages, isOpen, activeTab]);
 
-  // 5. Initialize Web Audio Visualizer (Dynamic Pulse Simulation without blocking hardware mic)
-  const initAudioAnalyser = () => {
-    let t = 0;
-    const updateLevel = () => {
-      if (isInVoiceCallRef.current) {
-        t += 0.08;
-        if (assistantStateRef.current === 'listening') {
-          // Dynamic organic pulse while listening
-          const level = Math.sin(t * 2) * 0.25 + 0.35 + (latestTranscriptRef.current ? 0.3 : 0);
-          setMicAudioLevel(Math.max(0.1, Math.min(1, level)));
-        } else if (assistantStateRef.current === 'speaking') {
-          // High energetic rhythmic pulse while speaking
-          const level = Math.abs(Math.sin(t * 4)) * 0.6 + 0.4;
-          setMicAudioLevel(Math.min(1, level));
-        } else {
-          setMicAudioLevel(0.05);
-        }
-        animFrameRef.current = requestAnimationFrame(updateLevel);
-      }
-    };
-    animFrameRef.current = requestAnimationFrame(updateLevel);
-  };
-
-  const stopAudioAnalyser = () => {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-    setMicAudioLevel(0);
-  };
-
-  // 6. Stop any active TTS audio playback (Supports Interruption / Barge-in)
-  const stopAudioPlayback = () => {
-    isSpeakingRef.current = false;
-    if (currentAudioSourceRef.current) {
-      try {
-        currentAudioSourceRef.current.stop();
-        currentAudioSourceRef.current.disconnect();
-      } catch (e) {}
-      currentAudioSourceRef.current = null;
-    }
-  };
-
-  // Safe SpeechRecognition start & stop helpers (prevents InvalidStateError & mobile mic flapping)
-  const safeStartRecognition = () => {
-    if (!recognitionRef.current || !isInVoiceCallRef.current || isRecognitionRunningRef.current || isSpeakingRef.current || assistantStateRef.current === 'processing' || isMicMutedRef.current) {
-      return;
-    }
-    try {
-      isRecognitionRunningRef.current = true;
-      recognitionRef.current.start();
-    } catch (err: any) {
-      if (err?.name === 'InvalidStateError' || err?.message?.includes('already started')) {
-        isRecognitionRunningRef.current = true;
-      } else {
-        isRecognitionRunningRef.current = false;
-      }
-    }
-  };
-
-  const safeStopRecognition = () => {
-    if (!recognitionRef.current) return;
-    try {
-      recognitionRef.current.abort();
-    } catch (e) {}
-    isRecognitionRunningRef.current = false;
-  };
-
-  // 7. Initialize Speech Recognition with Hands-Free VAD optimized for mobile & desktop
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      // Continuous mode ensures Android Chrome and iOS Safari do not disconnect the microphone every 2 seconds
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = 'es-CO'; // Colombian Spanish
-
-      recognition.onstart = () => {
-        isRecognitionRunningRef.current = true;
-        setMicPermissionError(null);
-        if (isInVoiceCallRef.current && !isSpeakingRef.current && assistantStateRef.current !== 'processing') {
-          setAssistantState('listening');
-        }
-      };
-
-      recognition.onresult = (event: any) => {
-        if (isMicMutedRef.current || isSpeakingRef.current || assistantStateRef.current === 'processing') return;
-
-        let fullTranscript = '';
-        let isFinal = false;
-        for (let i = 0; i < event.results.length; ++i) {
-          fullTranscript += event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            isFinal = true;
-          }
-        }
-
-        const trimmed = fullTranscript.trim();
-        if (trimmed) {
-          setTranscript(trimmed);
-          latestTranscriptRef.current = trimmed;
-
-          // VAD SILENCE DETECTION: Reset timer every time new speech is detected
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
-
-          // Auto-send when user finishes speaking (smooth pause detection)
-          const delay = isFinal ? 800 : 1300;
-          silenceTimerRef.current = setTimeout(() => {
-            if (isInVoiceCallRef.current && latestTranscriptRef.current && assistantStateRef.current === 'listening' && !isSpeakingRef.current) {
-              const textToSend = latestTranscriptRef.current;
-              latestTranscriptRef.current = '';
-              setTranscript('');
-              handleSendMessage(textToSend);
-            }
-          }, delay);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          console.warn("Speech recognition notice:", event.error);
-        }
-        isRecognitionRunningRef.current = false;
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
-          setMicPermissionError('Permiso de micrófono denegado. Toca el candado en la barra de direcciones de tu navegador para autorizar el micrófono.');
-          setIsInVoiceCall(false);
-          isInVoiceCallRef.current = false;
-          setAssistantState('idle');
-          stopAudioAnalyser();
-        }
-      };
-
-      recognition.onend = () => {
-        isRecognitionRunningRef.current = false;
-        // In continuous hands-free mode: gently re-open ONLY if not speaking, not processing, and throttled (preventing Android flashing)
-        if (
-          isInVoiceCallRef.current &&
-          !isSpeakingRef.current &&
-          assistantStateRef.current === 'listening' &&
-          !isMicMutedRef.current &&
-          listeningModeRef.current === 'continuous'
-        ) {
-          const now = Date.now();
-          if (now - lastRestartTimeRef.current > 700) {
-            lastRestartTimeRef.current = now;
-            setTimeout(() => {
-              if (
-                isInVoiceCallRef.current &&
-                !isSpeakingRef.current &&
-                assistantStateRef.current === 'listening' &&
-                !isMicMutedRef.current
-              ) {
-                safeStartRecognition();
+  // 5. Initialize or Get Realtime Manager
+  const getOrCreateRealtimeManager = () => {
+    if (!realtimeManagerRef.current) {
+      realtimeManagerRef.current = new RealtimeMeseroManager({
+        onStateChange: (state) => {
+          setAssistantState(state);
+        },
+        onTranscriptDelta: (text, isFinal, sender) => {
+          setTranscript(text);
+          if (isFinal) {
+            setMessages(prev => {
+              const last = prev[prev.length - 1];
+              // Avoid exact duplicate append if same message
+              if (last && last.sender === sender && last.text === text) {
+                return prev;
               }
-            }, 300);
+              return [
+                ...prev,
+                {
+                  id: `${sender}_${Date.now()}_${Math.random()}`,
+                  sender,
+                  text,
+                  timestamp: new Date()
+                }
+              ];
+            });
           }
-        } else if (!isInVoiceCallRef.current) {
-          setAssistantState('idle');
+        },
+        onAudioLevel: (level) => {
+          setAudioLevel(level);
+        },
+        onCartUpdated: (updatedCart) => {
+          setCart(updatedCart);
+        },
+        onOrderCreated: (order) => {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `order_${Date.now()}`,
+              sender: 'assistant',
+              text: `¡Tu pedido #${order.orderNumber} ha sido confirmado con éxito!`,
+              timestamp: new Date(),
+              actionPayload: {
+                type: 'ORDER_CREATE_CONFIRMED',
+                data: order
+              }
+            }
+          ]);
+        },
+        onError: (err) => {
+          console.warn("Realtime WebRTC Notice:", err);
+          const errMsg = typeof err === 'string' ? err : err?.message || 'Error en la sesión de voz Realtime';
+          if (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('notallowed')) {
+            setMicPermissionError('Permiso de micrófono denegado. Permite el acceso al micrófono en tu navegador para continuar.');
+          } else {
+            setMicPermissionError(errMsg);
+          }
         }
-      };
-
-      recognitionRef.current = recognition;
-    } else {
-      setMicPermissionError('Tu navegador no soporta reconocimiento por voz directo. Puedes usar el campo de chat.');
+      });
     }
+    return realtimeManagerRef.current;
+  };
 
-    return () => {
-      stopAudioPlayback();
-      stopAudioAnalyser();
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (e) {}
-      }
-      isRecognitionRunningRef.current = false;
-    };
-  }, []);
-
-  // 8. Start & End Real-Time Voice Call Session
+  // 6. Start continuous WebRTC session with gpt-realtime-2.1 and VAD
   const startVoiceCall = async () => {
-    setIsOpen(true);
-    setIsInVoiceCall(true);
-    isInVoiceCallRef.current = true;
-    setActiveTab('call');
-    setTranscript('');
-    latestTranscriptRef.current = '';
-    setAssistantState('listening');
     setMicPermissionError(null);
+    setTranscript('');
+    isInVoiceCallRef.current = true;
 
-    // Warm up AudioContext synchronously on user gesture (Crucial for mobile browsers)
     try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtxClass();
+      const manager = getOrCreateRealtimeManager();
+      await manager.start();
+    } catch (err: any) {
+      console.warn("Failed to start WebRTC session:", err);
+      if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission denied')) {
+        setMicPermissionError('Permiso de micrófono denegado. Toca el candado en la barra del navegador para permitir el micrófono.');
+      } else {
+        setMicPermissionError('No fue posible conectar con el mesero de voz. Intenta nuevamente.');
       }
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume().catch(() => {});
-      }
-    } catch (e) {}
-
-    stopAudioPlayback();
-    initAudioAnalyser();
-
-    // Try OpenAI Realtime WebRTC session
-    try {
-      if (!realtimeManagerRef.current) {
-        realtimeManagerRef.current = new RealtimeMeseroManager({
-          onStateChange: (state) => {
-            setAssistantState(state);
-            assistantStateRef.current = state;
-          },
-          onTranscriptDelta: (text, isFinal, sender) => {
-            if (sender === 'user') {
-              setTranscript(text);
-              if (isFinal) {
-                setMessages(prev => [
-                  ...prev,
-                  { id: 'usr_' + Date.now(), sender: 'user', text, timestamp: new Date() }
-                ]);
-              }
-            } else {
-              setTranscript(text);
-              if (isFinal) {
-                setMessages(prev => [
-                  ...prev,
-                  { id: 'asst_' + Date.now(), sender: 'assistant', text, timestamp: new Date() }
-                ]);
-              }
-            }
-          },
-          onCartUpdated: (updatedCart) => {
-            setCart(updatedCart);
-          },
-          onError: (err) => {
-            console.warn("Realtime WebRTC connection notice, fallback voice active:", err);
-          }
-        });
-      }
-
-      await realtimeManagerRef.current.start();
-    } catch (realtimeErr) {
-      console.info("Falling back to standard streaming voice assistant engine:", realtimeErr);
-      setTimeout(() => {
-        safeStartRecognition();
-      }, 150);
     }
   };
 
+  // 7. End Voice Call Session
   const endVoiceCall = () => {
-    setIsInVoiceCall(false);
     isInVoiceCallRef.current = false;
-    setAssistantState('idle');
-    setTranscript('');
-    latestTranscriptRef.current = '';
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
     if (realtimeManagerRef.current) {
       realtimeManagerRef.current.stop();
     }
-
-    stopAudioPlayback();
-    stopAudioAnalyser();
-    safeStopRecognition();
+    setAssistantState('idle');
+    setTranscript('');
+    setAudioLevel(0);
   };
 
-  // Interactive Central Mic Tap Handler (Interrupts AI or forces send/listen)
-  const handleCentralMicClick = () => {
+  // Toggle Assistant Open / Close on Floating Button Tap
+  const handleToggleAssistant = () => {
+    if (isOpen) {
+      endVoiceCall();
+      setIsOpen(false);
+      setIsMinimized(false);
+    } else {
+      setIsOpen(true);
+      setIsMinimized(false);
+      setActiveTab('call');
+      startVoiceCall();
+    }
+  };
+
+  // Toggle local mic mute
+  const handleToggleMicMute = () => {
+    if (realtimeManagerRef.current) {
+      const nextMuted = !isMicMuted;
+      realtimeManagerRef.current.setMicMuted(nextMuted);
+      setIsMicMuted(nextMuted);
+    }
+  };
+
+  // Toggle speaker mute
+  const handleToggleSpeakerMute = () => {
+    if (realtimeManagerRef.current) {
+      const nextMuted = !isVoiceMuted;
+      realtimeManagerRef.current.setSpeakerMuted(nextMuted);
+      setIsVoiceMuted(nextMuted);
+    }
+  };
+
+  // Central Orb Tap Handler: Allows user to interrupt assistant or start if idle
+  const handleCentralOrbClick = () => {
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(35);
+        navigator.vibrate(30);
       }
     } catch (e) {}
 
-    if (!isInVoiceCallRef.current) {
+    if (assistantState === 'idle' || assistantState === 'error') {
       startVoiceCall();
       return;
     }
 
-    // 1. If AI is speaking -> User taps to interrupt immediately & start talking
-    if (isSpeakingRef.current || assistantStateRef.current === 'speaking') {
-      stopAudioPlayback();
-      setAssistantState('listening');
-      safeStartRecognition();
-      return;
-    }
-
-    // 2. If speech is already recognized in transcript -> Tap sends instantly
-    if (transcript.trim()) {
-      const textToSend = transcript.trim();
-      setTranscript('');
-      latestTranscriptRef.current = '';
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      handleSendMessage(textToSend);
-      return;
-    }
-
-    // 3. If in Push-to-Talk mode and idle/listening
-    if (listeningMode === 'push_to_talk') {
-      if (isRecognitionRunningRef.current) {
-        safeStopRecognition();
-      } else {
-        safeStartRecognition();
+    if (assistantState === 'speaking') {
+      if (realtimeManagerRef.current) {
+        realtimeManagerRef.current.interruptAssistant();
       }
-      return;
     }
-
-    // 4. In Continuous mode: If listening in silence -> Re-arm recognition cleanly once
-    safeStopRecognition();
-    setTimeout(() => {
-      safeStartRecognition();
-    }, 150);
   };
 
-  // 9. Play audio response with Web Audio (MP3/PCM) or Web Speech API
-  const playVoiceResponse = async (text: string, audioBase64?: string) => {
-    if (isVoiceMuted) {
-      if (isInVoiceCallRef.current) {
-        setAssistantState('listening');
-        setTimeout(() => {
-          if (isInVoiceCallRef.current && assistantStateRef.current === 'listening') {
-            safeStartRecognition();
-          }
-        }, 250);
-      } else {
-        setAssistantState('idle');
-      }
-      return;
-    }
-
-    safeStopRecognition();
-    stopAudioPlayback();
-    isSpeakingRef.current = true;
-    setAssistantState('speaking');
-
-    // Callback when AI finishes speaking -> resume listening with grace period
-    const onSpeechComplete = () => {
-      isSpeakingRef.current = false;
-      currentAudioSourceRef.current = null;
-      if (isInVoiceCallRef.current) {
-        setAssistantState('listening');
-        setTranscript('');
-        latestTranscriptRef.current = '';
-        setTimeout(() => {
-          if (isInVoiceCallRef.current && !isSpeakingRef.current && assistantStateRef.current === 'listening') {
-            safeStartRecognition();
-          }
-        }, 350);
-      } else {
-        setAssistantState('idle');
-      }
-    };
-
-    if (audioBase64) {
-      try {
-        const binaryString = atob(audioBase64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!audioContextRef.current) {
-          audioContextRef.current = new AudioContextClass();
-        }
-        const ctx = audioContextRef.current;
-        if (ctx.state === 'suspended') {
-          await ctx.resume();
-        }
-
-        let audioBuffer: AudioBuffer | null = null;
-
-        // 1. Try browser native decodeAudioData (decodes OpenAI MP3, WAV, AAC)
-        try {
-          const bufferCopy = bytes.buffer.slice(0);
-          audioBuffer = await ctx.decodeAudioData(bufferCopy);
-        } catch (decodeErr) {
-          // 2. Fallback to Gemini 24kHz raw PCM decoding
-          try {
-            const int16Array = new Int16Array(bytes.buffer);
-            const float32Array = new Float32Array(int16Array.length);
-            for (let i = 0; i < int16Array.length; i++) {
-              float32Array[i] = int16Array[i] / 32768;
-            }
-            audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
-            audioBuffer.getChannelData(0).set(float32Array);
-          } catch (pcmErr) {
-            audioBuffer = null;
-          }
-        }
-
-        if (audioBuffer) {
-          const source = ctx.createBufferSource();
-          source.buffer = audioBuffer;
-          source.connect(ctx.destination);
-          currentAudioSourceRef.current = source;
-
-          source.onended = onSpeechComplete;
-          source.start();
-          return;
-        }
-      } catch (err) {
-        console.warn("OpenAI Audio playback error:", err);
-      }
-    }
-
-    // Direct completion when no audio data is received (100% OpenAI voice only, no browser speech synthesis)
-    onSpeechComplete();
-  };
-
-  // Fallback client-side matching engine when backend API or network connection is interrupted
-  const computeClientLocalVoiceResponse = (
-    userText: string,
-    products: ProductItem[],
-    stores: Record<string, UserProfile>,
-    currentCart: GeneralCartItem[],
-    deliveryFee: number
-  ) => {
-    const lower = userText.toLowerCase().trim();
-    const executedActions: any[] = [];
-    let responseText = '';
-
-    let activeProducts = products.filter(p => {
-      if (p.active === false) return false;
-      const store = findStoreForProduct(p, stores);
-      if (store) {
-        return !checkIsStoreClosed(store) && !store.suspended;
-      }
-      return true;
-    });
-    if (activeProducts.length === 0 && products.length > 0) {
-      activeProducts = products.filter(p => p.active !== false);
-    }
-
-    // 0. Query about open stores or restaurants
-    if (
-      (lower.includes('tienda') || lower.includes('tiendas') || lower.includes('restaurante') || lower.includes('restaurantes') || lower.includes('local') || lower.includes('locales') || lower.includes('negocio') || lower.includes('negocios')) &&
-      (lower.includes('abiert') || lower.includes('hay') || lower.includes('cuales') || lower.includes('cuáles') || lower.includes('disponible') || lower.includes('ver') || lower.includes('mostrar') || lower.includes('lista'))
-    ) {
-      const storeList = Object.values(stores).filter(s => s && !s.suspended);
-      const safeStores = storeList.length > 0 ? storeList : [];
-      const storeNames = safeStores.slice(0, 5).map(s => s.displayName || s.username).join(', ');
-
-      executedActions.push({
-        type: 'OPEN_STORES_LISTED',
-        stores: safeStores.slice(0, 10)
-      });
-
-      if (safeStores.length > 0) {
-        responseText = `¡Sí, claro! Tenemos abiertos y disponibles los siguientes restaurantes y tiendas: ${storeNames}. ¿Qué se te antoja ordenar hoy?`;
-      } else if (activeProducts.length > 0) {
-        const topProds = activeProducts.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ');
-        responseText = `Tenemos deliciosos platos listos para ti como: ${topProds}. ¿Te gustaría que agregue alguno a tu pedido?`;
-      } else {
-        responseText = `Nuestros restaurantes afiliados están listos para atenderte. ¿Qué te gustaría ordenar hoy?`;
-      }
-    }
-    // 1. Check cart request
-    else if (lower.includes('carrito') || lower.includes('que tengo') || lower.includes('qué tengo') || lower.includes('mis platos') || lower.includes('ver orden')) {
-      const totalAmount = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-      const itemCount = currentCart.reduce((sum, item) => sum + item.quantity, 0);
-      executedActions.push({
-        type: 'CART_SUMMARY',
-        cart: currentCart,
-        totalAmount,
-        itemCount
-      });
-
-      if (currentCart.length === 0) {
-        responseText = 'Tu carrito de compras está vacío actualmente. Puedes pedirme pollo asado, hamburguesas, pizzas o consultar nuestros menús.';
-      } else {
-        const itemsList = currentCart.map(i => `${i.quantity}x ${i.product.name}`).join(', ');
-        responseText = `Tienes ${itemCount} plato(s) en tu carrito: ${itemsList}. Subtotal: ${totalAmount.toLocaleString('es-CO')} pesos. ¿Deseas confirmar tu pedido?`;
-      }
-    }
-    // 2. Add to cart request
-    else if (lower.includes('quiero') || lower.includes('agrega') || lower.includes('pedir') || lower.includes('ordenar') || lower.includes('añade') || lower.includes('dame')) {
-      let qty = 1;
-      const matchNum = lower.match(/\b(\d+)\b/);
-      if (matchNum) {
-        qty = parseInt(matchNum[1], 10);
-      } else if (lower.includes('dos') || lower.includes('2')) {
-        qty = 2;
-      } else if (lower.includes('tres') || lower.includes('3')) {
-        qty = 3;
-      }
-
-      const candidate = activeProducts.find(p => {
-        const pName = (p.name || '').toLowerCase();
-        const pWords = pName.split(/\s+/);
-        return pWords.some(w => w.length > 3 && lower.includes(w)) || lower.includes(pName);
-      });
-
-      if (candidate) {
-        executedActions.push({
-          type: 'ADD_TO_CART',
-          product: candidate,
-          quantity: qty
-        });
-        responseText = `¡Listo! He agregado ${qty} ${candidate.name} a tu carrito por ${(candidate.price * qty).toLocaleString('es-CO')} pesos. ¿Deseas algo más o confirmamos tu pedido?`;
-      } else {
-        const searchMatches = activeProducts.filter(p => {
-          const pName = (p.name || '').toLowerCase();
-          const pCat = (p.category || '').toLowerCase();
-          return lower.includes(pName) || (pCat && lower.includes(pCat)) || pName.split(/\s+/).some(w => w.length > 3 && lower.includes(w));
-        });
-        const topItems = (searchMatches.length > 0 ? searchMatches : activeProducts).slice(0, 3);
-        responseText = `Tenemos opciones como: ${topItems.map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos`).join(', ')}. ¿Cuál deseas agregar?`;
-      }
-    }
-    // 3. Search / Menu queries
-    else if (
-      lower.includes('pizza') || lower.includes('hamburguesa') || lower.includes('pollo') || 
-      lower.includes('pechuga') || lower.includes('alita') || lower.includes('broaster') || 
-      lower.includes('asado') || lower.includes('salchipapa') || lower.includes('perro') || 
-      lower.includes('bebida') || lower.includes('menu') || lower.includes('menú') || 
-      lower.includes('platos') || lower.includes('restaurantes') || lower.includes('comida') || lower.includes('comer')
-    ) {
-      const rawTokens = lower.split(/\s+/).map(t => t.replace(/[^a-záéíóúüñ0-9]/gi, '')).filter(t => t.length >= 3);
-      const searchMatches = activeProducts.filter(p => {
-        const pName = (p.name || '').toLowerCase();
-        const pCat = (p.category || '').toLowerCase();
-        const pDesc = (p.description || '').toLowerCase();
-
-        if (lower.includes('pollo') || lower.includes('pollos')) {
-          if (pName.includes('pollo') || pCat.includes('pollo') || pDesc.includes('pollo') || pName.includes('pechuga') || pName.includes('alitas') || pName.includes('broaster')) return true;
-        }
-        if (lower.includes('hamburguesa') || lower.includes('burger')) {
-          if (pName.includes('hamburguesa') || pCat.includes('hamburguesa') || pName.includes('burger') || pDesc.includes('angus')) return true;
-        }
-        if (lower.includes('pizza')) {
-          if (pName.includes('pizza') || pCat.includes('pizza')) return true;
-        }
-        return rawTokens.some(tok => {
-          const singular = tok.endsWith('s') ? tok.slice(0, -1) : tok;
-          return pName.includes(tok) || pName.includes(singular) || pCat.includes(tok) || pDesc.includes(tok);
-        }) || lower.includes(pName);
-      });
-
-      const finalResults = searchMatches.length > 0 ? searchMatches : activeProducts;
-      executedActions.push({
-        type: 'PRODUCTS_SEARCHED',
-        query: userText,
-        results: finalResults.slice(0, 8),
-        stores: Object.values(stores).slice(0, 4)
-      });
-
-      const topItems = finalResults.slice(0, 3).map(p => `${p.name} por ${p.price.toLocaleString('es-CO')} pesos en ${stores[p.userId]?.displayName || 'el restaurante'}`).join(', ');
-      responseText = `Encontré estas opciones deliciosas: ${topItems}. ¿Te gustaría que agregue alguna a tu carrito?`;
-    }
-    // 4. Confirm order request
-    else if (lower.includes('confirm') || lower.includes('hacer pedido') || lower.includes('enviar pedido') || lower.includes('finalizar')) {
-      if (currentCart.length === 0) {
-        responseText = 'Tu carrito está vacío. Agrega primero los platos que deseas ordenar.';
-      } else {
-        const subtotal = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-        const grandTotal = subtotal + deliveryFee;
-        executedActions.push({
-          type: 'ORDER_CONFIRMATION_REQUESTED',
-          orderProposal: {
-            itemsCount: currentCart.length,
-            subtotal,
-            deliveryFee,
-            grandTotal,
-            customerName: 'Cliente',
-            customerPhone: '',
-            customerAddress: 'Dirección de entrega',
-            paymentMethod: 'delivery_cash'
-          }
-        });
-        responseText = `El total de tu pedido es ${grandTotal.toLocaleString('es-CO')} pesos con domicilio incluido. Por favor confirma tus datos de entrega en pantalla para enviarlo.`;
-      }
-    }
-    // 5. Default greeting & assistance
-    else {
-      const sample = activeProducts.slice(0, 3).map(p => `${p.name} (${p.price.toLocaleString('es-CO')} pesos)`).join(', ');
-      responseText = `¡Hola! Soy tu asistente LinnkPro. Puedes pedir platos como ${sample}, o consultar restaurantes. ¿Qué te gustaría ordenar hoy?`;
-    }
-
-    return {
-      text: responseText,
-      actions: executedActions
-    };
-  };
-
-  // 10. Handle Send Message to Gemini Voice Assistant
-  const handleSendMessage = async (textToSend: string) => {
-    if (!textToSend || !textToSend.trim()) return;
-
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    safeStopRecognition();
-    stopAudioPlayback();
-    setTranscript('');
-    latestTranscriptRef.current = '';
+  // Send typed message via Realtime session or chat
+  const handleSendTextMessage = (text: string) => {
+    if (!text || !text.trim()) return;
+    const clean = text.trim();
     setInputText('');
 
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      sender: 'user',
-      text: textToSend.trim(),
-      timestamp: new Date()
+    if (realtimeManagerRef.current && realtimeManagerRef.current.getIsConnected()) {
+      realtimeManagerRef.current.sendTextMessage(clean);
+    } else {
+      // Direct offline / fallback message
+      setMessages(prev => [
+        ...prev,
+        { id: `usr_${Date.now()}`, sender: 'user', text: clean, timestamp: new Date() },
+        { id: `asst_${Date.now()}`, sender: 'assistant', text: 'Conectando con iAmesero...', timestamp: new Date() }
+      ]);
+      startVoiceCall().then(() => {
+        if (realtimeManagerRef.current) {
+          realtimeManagerRef.current.sendTextMessage(clean);
+        }
+      });
+    }
+  };
+
+  // Clean up on component unmount
+  useEffect(() => {
+    return () => {
+      if (realtimeManagerRef.current) {
+        realtimeManagerRef.current.stop();
+      }
     };
-
-    setMessages(prev => [...prev, userMsg]);
-    setAssistantState('processing');
-
-    try {
-      // Ensure catalog data is loaded and up to date
-      let currentStores = catalogStores;
-      let currentProducts = catalogProducts;
-      if (currentProducts.length === 0 || Object.keys(currentStores).length === 0) {
-        try {
-          const freshData = await fetchAllActiveProductsAndStores();
-          if (freshData && freshData.products) {
-            currentStores = freshData.profiles || {};
-            currentProducts = freshData.products.filter(p => p.active !== false);
-            setCatalogStores(currentStores);
-            setCatalogProducts(currentProducts);
-          }
-        } catch (e) {}
-      }
-
-      // Build catalog context with real data (open stores and active products)
-      const storeMap = new Map<string, any>();
-      (Object.values(currentStores) as UserProfile[]).forEach(s => {
-        if (s && s.uid && !s.suspended && !storeMap.has(s.uid)) {
-          storeMap.set(s.uid, {
-            uid: s.uid,
-            username: s.username || '',
-            displayName: s.displayName || s.username || 'Tienda',
-            bio: s.bio || '',
-            address: s.address || '',
-            phone: s.phone || '',
-            whatsapp: s.whatsapp || '',
-            isClosed: false
-          });
-        }
-      });
-
-      // Also extract and ensure stores for all active products are included
-      currentProducts.forEach(p => {
-        if (p.active !== false) {
-          const store = findStoreForProduct(p, currentStores);
-          if (store && store.uid && !store.suspended && !storeMap.has(store.uid)) {
-            storeMap.set(store.uid, {
-              uid: store.uid,
-              username: store.username || '',
-              displayName: store.displayName || store.username || 'Tienda',
-              bio: store.bio || '',
-              address: store.address || '',
-              phone: store.phone || '',
-              whatsapp: store.whatsapp || '',
-              isClosed: false
-            });
-          }
-        }
-      });
-
-      const storesArray = Array.from(storeMap.values());
-
-      let productsArray = currentProducts
-        .filter(p => {
-          if (p.active === false) return false;
-          const store = findStoreForProduct(p, currentStores);
-          if (store) {
-            return !checkIsStoreClosed(store) && !store.suspended;
-          }
-          return true;
-        })
-        .map(p => {
-          const store = findStoreForProduct(p, currentStores);
-          return {
-            id: p.id,
-            userId: p.userId || store?.uid || '',
-            name: p.name,
-            description: p.description || '',
-            price: p.price,
-            stock: p.stock,
-            category: p.category || 'General',
-            imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
-            storeName: store?.displayName || 'Tienda',
-            storeUsername: store?.username || '',
-            active: p.active
-          };
-        });
-
-      if (productsArray.length === 0 && currentProducts.length > 0) {
-        productsArray = currentProducts.filter(p => p.active !== false).map(p => {
-          const store = findStoreForProduct(p, currentStores);
-          return {
-            id: p.id,
-            userId: p.userId || store?.uid || '',
-            name: p.name,
-            description: p.description || '',
-            price: p.price,
-            stock: p.stock,
-            category: p.category || 'General',
-            imageURL: p.imageURL && p.imageURL.startsWith('data:') ? undefined : p.imageURL,
-            storeName: store?.displayName || 'Tienda',
-            storeUsername: store?.username || '',
-            active: p.active
-          };
-        });
-      }
-
-      const currentCart = getStoredCart();
-      const cartPayload = currentCart.map(c => ({
-        id: c.id,
-        productId: c.product.id,
-        name: c.product.name,
-        price: c.product.price,
-        quantity: c.quantity,
-        selectedVariant: c.selectedVariant,
-        imageURL: c.product.imageURL && c.product.imageURL.startsWith('data:') ? undefined : c.product.imageURL,
-        storeName: catalogStores[c.product.userId]?.displayName || 'Tienda',
-        userId: c.product.userId
-      }));
-
-      // Map confirmed prior history strictly alternating and non-empty
-      const historyPayload: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-      messages.slice(-8).forEach(m => {
-        if (m.text && m.text.trim()) {
-          const role = m.sender === 'user' ? 'user' : 'model';
-          historyPayload.push({
-            role,
-            parts: [{ text: m.text.trim() }]
-          });
-        }
-      });
-
-      let result: any = null;
-
-      try {
-        // Call backend voice assistant endpoint (ChatGPT GPT-4o)
-        const response = await fetch('/api/voice-assistant', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: textToSend.trim(),
-            history: historyPayload,
-            catalogContext: {
-              products: productsArray,
-              stores: storesArray,
-              deliveryFee: systemDeliveryFee,
-              cart: cartPayload
-            }
-          })
-        });
-
-        if (response.ok) {
-          result = await response.json();
-        }
-      } catch (fetchErr) {
-        console.warn("Backend fetch failed, activating resilient local client engine:", fetchErr);
-      }
-
-      // If backend failed or was unreachable on custom domain, calculate locally
-      if (!result || !result.text) {
-        result = computeClientLocalVoiceResponse(
-          textToSend.trim(),
-          catalogProducts,
-          catalogStores,
-          currentCart,
-          systemDeliveryFee
-        );
-      }
-
-      const aiReplyText = result.text || 'Entendido. ¿Deseas hacer algo más?';
-      const actions = result.actions || [];
-
-      // Process and execute any direct client-side state actions (like adding to cart)
-      let primaryActionPayload: any = null;
-
-      for (const action of actions) {
-        if (action.type === 'ADD_TO_CART' && action.product) {
-          addProductToCart(action.product, action.quantity || 1, action.variant);
-          setCart(getStoredCart());
-          primaryActionPayload = {
-            type: 'CART_SUMMARY',
-            data: {
-              addedProduct: action.product,
-              quantity: action.quantity || 1,
-              cart: getStoredCart()
-            }
-          };
-        } else if (action.type === 'PRODUCTS_SEARCHED') {
-          primaryActionPayload = {
-            type: 'PRODUCTS_SEARCHED',
-            data: {
-              query: action.query,
-              products: action.results,
-              stores: action.stores
-            }
-          };
-        } else if (action.type === 'CART_SUMMARY') {
-          primaryActionPayload = {
-            type: 'CART_SUMMARY',
-            data: {
-              cart: getStoredCart()
-            }
-          };
-        } else if (action.type === 'ORDER_CONFIRMATION_REQUESTED') {
-          primaryActionPayload = {
-            type: 'ORDER_CONFIRMATION_REQUESTED',
-            data: action.orderProposal
-          };
-        } else if (action.type === 'ORDER_CREATE_CONFIRMED') {
-          // Execute order creation in Firestore
-          await handleExecuteOrderCreation(action.orderData);
-          primaryActionPayload = {
-            type: 'ORDER_CREATE_CONFIRMED',
-            data: action.orderData
-          };
-        } else if (action.type === 'NAVIGATE_TO_STORE' && action.storeUsername) {
-          if (onNavigateToStore) {
-            onNavigateToStore(action.storeUsername);
-          }
-        }
-      }
-
-      const assistantMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        sender: 'assistant',
-        text: aiReplyText,
-        timestamp: new Date(),
-        actionPayload: primaryActionPayload
-      };
-
-      setMessages(prev => [...prev, assistantMsg]);
-
-      // Request OpenAI High Definition TTS audio or fallback to Web Speech API
-      if (!isVoiceMuted) {
-        try {
-          const ttsRes = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: result.speechText || aiReplyText })
-          });
-          if (ttsRes.ok) {
-            const ttsData = await ttsRes.json();
-            if (ttsData && ttsData.audio) {
-              playVoiceResponse(aiReplyText, ttsData.audio);
-            } else {
-              playVoiceResponse(aiReplyText);
-            }
-          } else {
-            playVoiceResponse(aiReplyText);
-          }
-        } catch (e) {
-          playVoiceResponse(aiReplyText);
-        }
-      } else {
-        if (isInVoiceCallRef.current) {
-          setAssistantState('listening');
-        } else {
-          setAssistantState('idle');
-        }
-      }
-    } catch (error) {
-      console.error("Critical fallback in LinnkPro AI:", error);
-      const fallback = computeClientLocalVoiceResponse(
-        textToSend.trim(),
-        catalogProducts,
-        catalogStores,
-        getStoredCart(),
-        systemDeliveryFee
-      );
-      const assistantMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        sender: 'assistant',
-        text: fallback.text,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      playVoiceResponse(fallback.text);
-    }
-  };
-
-  // Real Order Creation in Firebase
-  const handleExecuteOrderCreation = async (orderData: any) => {
-    setIsOrdering(true);
-    try {
-      const currentCart = getStoredCart();
-      if (currentCart.length === 0) {
-        throw new Error("El carrito está vacío.");
-      }
-
-      // Group items by merchant userId
-      const itemsBySeller: Record<string, typeof currentCart> = {};
-      currentCart.forEach(item => {
-        const sId = item.product.userId || 'general';
-        if (!itemsBySeller[sId]) itemsBySeller[sId] = [];
-        itemsBySeller[sId].push(item);
-      });
-
-      const orderNumberBase = Math.floor(1000 + Math.random() * 9000);
-
-      // Create an order in Firestore for each seller
-      for (const [sellerId, sellerItems] of Object.entries(itemsBySeller)) {
-        const storeProfile = catalogStores[sellerId];
-        const storeSubtotal = sellerItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-        const storeTotal = storeSubtotal + systemDeliveryFee;
-
-        const newOrder: OrderItem = {
-          id: '',
-          storeOwnerId: sellerId,
-          storeName: storeProfile?.displayName || 'Restaurante LinnkPro',
-          storeAddress: storeProfile?.address || '',
-          storePhone: storeProfile?.phone || storeProfile?.whatsapp || '',
-          orderNumber: orderNumberBase,
-          customerName: orderData.customerName || 'Cliente LinnkPro',
-          customerPhone: orderData.customerPhone || '',
-          customerAddress: orderData.customerAddress || 'Dirección de entrega',
-          paymentMethod: (orderData.paymentMethod as any) || 'delivery_cash',
-          status: 'pending',
-          items: sellerItems.map(item => ({
-            productId: item.product.id,
-            name: item.product.name,
-            price: item.product.price,
-            quantity: item.quantity,
-            selectedVariant: item.selectedVariant
-          })),
-          totalAmount: storeTotal,
-          deliveryFee: systemDeliveryFee,
-          notes: orderData.notes ? `[LinnkPro AI Voice] ${orderData.notes}` : '[LinnkPro AI Voice]',
-          createdAt: new Date().toISOString()
-        };
-
-        await saveOrder(newOrder);
-      }
-
-      // Clear cart
-      clearAllCart();
-      setCart([]);
-    } catch (e) {
-      console.error("Error creating real order from voice assistant:", e);
-    } finally {
-      setIsOrdering(false);
-    }
-  };
-
-  // Format call duration into MM:SS
-  const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
   const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'assistant');
 
   return (
     <>
-      {/* 1. FLOATING CALL & CHAT TRIGGER (1. Botón Inicial Minimalista & 4. Opción Alternativa & 5. Modo Minimizado) */}
+      {/* 1. FLOATING CALL & CHAT TRIGGER (BOTTOM-LEFT CORNER) */}
       <div 
         id="linnkpro-voice-fab-container"
         className="fixed bottom-20 left-4 sm:bottom-6 sm:left-6 z-40 flex items-center gap-3"
       >
-        {/* 5. MODO MINIMIZADO: Sleek floating indicator docked in the corner */}
+        {/* Minimized floating pill */}
         {isOpen && isMinimized ? (
           <motion.button
             id="linnkpro-voice-minimized-pill"
@@ -1215,8 +376,8 @@ export default function LinnkProVoiceAssistant({
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
             onClick={() => setIsMinimized(false)}
-            className="flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[#121722]/95 hover:bg-[#181F2E] border-2 border-[#EF4444] shadow-[0_0_25px_rgba(239,68,68,0.45)] text-white hover:scale-105 transition-all group backdrop-blur-md"
-            title="Abrir chat de iAmesero"
+            className="flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[#121722]/95 hover:bg-[#181F2E] border-2 border-[#EF4444] shadow-[0_0_25px_rgba(239,68,68,0.45)] text-white hover:scale-105 transition-all group backdrop-blur-md cursor-pointer"
+            title="Abrir iAmesero"
           >
             <div className="w-7 h-7 rounded-full bg-[#EF4444] flex items-center justify-center text-white relative shadow-sm">
               <ChefHat className="w-4 h-4" />
@@ -1229,18 +390,15 @@ export default function LinnkProVoiceAssistant({
           </motion.button>
         ) : !isOpen ? (
           <div className="flex items-center gap-3">
-            {/* 1. BOTÓN INICIAL (MINIMALISTA) */}
+            {/* Main Floating Trigger: 1-Tap Continuous Session */}
             <button
               id="linnkpro-voice-fab"
-              onClick={() => {
-                setIsOpen(true);
-                setIsMinimized(false);
-              }}
-              className="relative w-14 h-14 rounded-full border-2 border-[#EF4444] bg-[#0E131F]/95 shadow-[0_0_25px_rgba(239,68,68,0.45)] hover:shadow-[0_0_35px_rgba(239,68,68,0.7)] flex items-center justify-center transition-all duration-300 transform active:scale-95 group hover:scale-105 flex-shrink-0"
-              aria-label="Invocar Mesero IA"
-              title="Pulsa para invocar a tu mesero IA"
+              onClick={handleToggleAssistant}
+              className="relative w-14 h-14 rounded-full border-2 border-[#EF4444] bg-[#0E131F]/95 shadow-[0_0_25px_rgba(239,68,68,0.45)] hover:shadow-[0_0_35px_rgba(239,68,68,0.7)] flex items-center justify-center transition-all duration-300 transform active:scale-95 group hover:scale-105 flex-shrink-0 cursor-pointer"
+              aria-label="Abrir mesero IA"
+              title="Abrir mesero IA"
             >
-              {/* 2. ANIMACIÓN AL ACTIVAR: Subtle expanding concentric ripple */}
+              {/* Concentric subtle ping */}
               <span className="absolute -inset-1 rounded-full border border-red-500/40 animate-ping pointer-events-none opacity-40"></span>
               <span className="absolute -inset-2 rounded-full bg-red-600/10 blur-sm group-hover:bg-red-600/20 transition"></span>
 
@@ -1250,7 +408,7 @@ export default function LinnkProVoiceAssistant({
               </div>
             </button>
 
-            {/* 4. OPCIÓN ALTERNATIVA: Friendly Speech Bubble Tooltip */}
+            {/* Friendly Speech Bubble Tooltip */}
             {showFloatingTooltip && (
               <motion.div
                 initial={{ opacity: 0, x: -15, scale: 0.95 }}
@@ -1258,16 +416,15 @@ export default function LinnkProVoiceAssistant({
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="relative hidden sm:flex items-center bg-[#161D2B]/95 border border-red-500/40 text-white text-xs px-3.5 py-2 rounded-2xl shadow-xl backdrop-blur-md gap-2"
               >
-                {/* Speech Bubble Tail pointing left */}
                 <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-[#161D2B] border-b border-l border-red-500/40 rotate-45"></div>
                 <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 animate-pulse" />
-                <span className="font-medium text-slate-200">¿Necesitas ayuda para pedir algo?</span>
+                <span className="font-medium text-slate-200">¿Deseas ordenar por voz? Toca aquí</span>
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowFloatingTooltip(false);
                   }}
-                  className="text-slate-400 hover:text-white p-0.5 ml-1 transition"
+                  className="text-slate-400 hover:text-white p-0.5 ml-1 transition cursor-pointer"
                   title="Cerrar sugerencia"
                 >
                   <X className="w-3 h-3" />
@@ -1278,7 +435,7 @@ export default function LinnkProVoiceAssistant({
         ) : null}
       </div>
 
-      {/* 3. CHAT DEL MESERO IA & IMMERSIVE VOICE STAGE MODAL */}
+      {/* 2. FULL MODAL DIALOG (VOICE CALL & CHAT VIEWS) */}
       <AnimatePresence>
         {isOpen && !isMinimized && (
           <motion.div
@@ -1286,21 +443,19 @@ export default function LinnkProVoiceAssistant({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-start sm:justify-start sm:pl-6 p-0 sm:p-4 bg-black/75 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm"
           >
-            {/* Modal Container Card */}
             <motion.div
-              id="linnkpro-voice-modal-card"
-              initial={{ y: 60, scale: 0.95, opacity: 0 }}
+              id="linnkpro-voice-modal-container"
+              initial={{ y: 50, scale: 0.95, opacity: 0 }}
               animate={{ y: 0, scale: 1, opacity: 1 }}
-              exit={{ y: 60, scale: 0.95, opacity: 0 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 300 }}
-              className="w-full sm:w-[440px] h-[92vh] sm:h-[650px] max-h-[95vh] bg-[#121722]/98 backdrop-blur-2xl border border-white/10 rounded-t-3xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden text-gray-100 relative"
+              exit={{ y: 50, scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full sm:max-w-md h-[92vh] sm:h-[620px] max-h-[720px] bg-[#121722] border sm:border-2 border-white/10 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
             >
-              {/* TOP HEADER BAR (Matching Diseño de chat.png) */}
+              {/* TOP HEADER BAR */}
               <div className="px-4 sm:px-5 py-3.5 bg-[#161D2B] border-b border-white/10 flex items-center justify-between z-10 w-full flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
-                  {/* Chef Hat Circular Badge Avatar */}
                   <div className="w-10 h-10 rounded-full border-2 border-[#EF4444] bg-[#0E131F] flex items-center justify-center text-white shadow-md shadow-red-500/20 flex-shrink-0">
                     <ChefHat className="w-5 h-5 text-white" />
                   </div>
@@ -1312,40 +467,41 @@ export default function LinnkProVoiceAssistant({
                         <span className="text-white">mesero</span>
                       </h3>
                     </div>
-                    {/* Status Indicator */}
-                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium leading-none mt-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>En línea</span>
+                    {/* Status Pill */}
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium leading-none mt-1">
+                      <span className={`w-2 h-2 rounded-full ${
+                        assistantState === 'listening' 
+                          ? 'bg-emerald-400 animate-pulse' 
+                          : assistantState === 'user_speaking'
+                          ? 'bg-blue-400 animate-ping'
+                          : assistantState === 'speaking'
+                          ? 'bg-amber-400 animate-pulse'
+                          : assistantState === 'processing'
+                          ? 'bg-red-400 animate-spin'
+                          : 'bg-slate-500'
+                      }`}></span>
+                      <span className={`${
+                        assistantState === 'listening' ? 'text-emerald-400' :
+                        assistantState === 'user_speaking' ? 'text-blue-300' :
+                        assistantState === 'speaking' ? 'text-amber-300' :
+                        assistantState === 'processing' ? 'text-red-400' : 'text-slate-400'
+                      }`}>
+                        {assistantState === 'listening' ? 'Escuchando' :
+                         assistantState === 'user_speaking' ? 'Escuchándote' :
+                         assistantState === 'speaking' ? 'Hablando' :
+                         assistantState === 'processing' ? 'Procesando' : 'En línea'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Right Action Controls */}
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                  {/* View Mode Switcher (Chat vs Voz) */}
+                  {/* Mode Switcher */}
                   <div className="bg-[#0E131F] p-0.5 rounded-full border border-white/10 flex items-center">
                     <button
-                      onClick={() => {
-                        endVoiceCall();
-                        setActiveTab('chat');
-                      }}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition flex items-center gap-1 ${
-                        activeTab === 'chat' 
-                          ? 'bg-[#EF4444] text-white shadow-sm' 
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <MessageSquare className="w-3 h-3" />
-                      Chat
-                    </button>
-                    <button
-                      onClick={() => {
-                        setActiveTab('call');
-                        if (!isInVoiceCallRef.current) {
-                          startVoiceCall();
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition flex items-center gap-1 ${
+                      onClick={() => setActiveTab('call')}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
                         activeTab === 'call' 
                           ? 'bg-[#EF4444] text-white shadow-sm' 
                           : 'text-slate-400 hover:text-white'
@@ -1354,13 +510,24 @@ export default function LinnkProVoiceAssistant({
                       <Radio className="w-3 h-3" />
                       Voz
                     </button>
+                    <button
+                      onClick={() => setActiveTab('chat')}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
+                        activeTab === 'chat' 
+                          ? 'bg-[#EF4444] text-white shadow-sm' 
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <MessageSquare className="w-3 h-3" />
+                      Chat
+                    </button>
                   </div>
 
                   {/* Minimize Button (—) */}
                   <button
                     id="linnkpro-voice-minimize-btn"
                     onClick={() => setIsMinimized(true)}
-                    className="w-8 h-8 rounded-full bg-[#0E131F] hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 flex items-center justify-center transition active:scale-95 flex-shrink-0"
+                    className="w-8 h-8 rounded-full bg-[#0E131F] hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 flex items-center justify-center transition active:scale-95 flex-shrink-0 cursor-pointer"
                     title="Minimizar"
                     aria-label="Minimizar"
                   >
@@ -1374,7 +541,7 @@ export default function LinnkProVoiceAssistant({
                       endVoiceCall();
                       setIsOpen(false);
                     }}
-                    className="w-8 h-8 rounded-full bg-[#0E131F] hover:bg-red-500/20 text-slate-300 hover:text-white border border-white/10 flex items-center justify-center transition active:scale-95 flex-shrink-0"
+                    className="w-8 h-8 rounded-full bg-[#0E131F] hover:bg-red-500/20 text-slate-300 hover:text-white border border-white/10 flex items-center justify-center transition active:scale-95 flex-shrink-0 cursor-pointer"
                     title="Cerrar"
                     aria-label="Cerrar"
                   >
@@ -1386,54 +553,41 @@ export default function LinnkProVoiceAssistant({
               {/* VIEW 1: IMMERSIVE REAL-TIME VOICE CALL STAGE */}
               {activeTab === 'call' && (
                 <div className="flex-1 flex flex-col justify-between p-4 sm:p-6 overflow-y-auto relative bg-[#0B0F19]">
-                  {/* Background Subtle Radial Glow */}
+                  {/* Dynamic Radial Glow */}
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className={`w-80 h-80 rounded-full blur-[100px] transition-all duration-700 opacity-20 ${
-                      assistantState === 'listening'
-                        ? 'bg-[#EF4444] scale-110'
-                        : assistantState === 'speaking'
-                        ? 'bg-[#EF4444] scale-125'
-                        : assistantState === 'processing'
-                        ? 'bg-[#EF4444]/70 scale-100'
-                        : 'bg-[#EF4444]/20'
-                    }`}></div>
+                    <div 
+                      className="w-80 h-80 rounded-full blur-[100px] transition-all duration-500 opacity-20 bg-[#EF4444]"
+                      style={{
+                        transform: `scale(${1 + audioLevel * 0.4})`
+                      }}
+                    ></div>
                   </div>
 
-                  {/* 1. Header Title & Mode Subtitle */}
+                  {/* 1. Header Title & Status */}
                   <div className="flex flex-col items-center justify-center z-10 pt-2 text-center">
                     <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                      {assistantState === 'listening' 
-                        ? (transcript ? `"${transcript}"` : 'Escuchando... habla con libertad')
-                        : assistantState === 'speaking' 
-                        ? 'IAMesero te está respondiendo...'
+                      {assistantState === 'user_speaking'
+                        ? (transcript ? `"${transcript}"` : 'Te escucho atentamente...')
+                        : assistantState === 'listening'
+                        ? 'Escuchando... habla con libertad'
+                        : assistantState === 'speaking'
+                        ? 'iAmesero respondiendo...'
                         : assistantState === 'processing'
-                        ? 'Procesando tu solicitud...'
-                        : 'En llamada con IAMesero'}
+                        ? 'Consultando menú...'
+                        : 'En llamada con iAmesero'}
                     </h2>
 
-                    <div className="flex items-center gap-2 mt-1.5 text-xs">
-                      <button
-                        onClick={() => {
-                          setListeningMode(prev => prev === 'continuous' ? 'push_to_talk' : 'continuous');
-                        }}
-                        className="flex items-center gap-1 text-red-500 hover:text-red-400 font-medium transition cursor-pointer"
-                      >
-                        <Mic className="w-3.5 h-3.5 text-red-500" />
-                        <span>Manos libres</span>
-                      </button>
-                      <span className="text-slate-600">•</span>
-                      <button
-                        onClick={() => {
-                          setListeningMode(prev => prev === 'push_to_talk' ? 'continuous' : 'push_to_talk');
-                        }}
-                        className={`transition cursor-pointer ${listeningMode === 'push_to_talk' ? 'text-red-400 font-semibold' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Pulsa para hablar
-                      </button>
+                    <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-400">
+                      <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Micrófono activo
+                      </span>
+                      <span>•</span>
+                      <span>Conversación continua</span>
                     </div>
                   </div>
 
-                  {/* Mobile Mic Permission Notice if any */}
+                  {/* Permission error notice if any */}
                   {micPermissionError && (
                     <div className="z-20 my-2 mx-auto max-w-sm bg-rose-950/90 border border-rose-600 rounded-2xl p-3 text-center shadow-2xl backdrop-blur">
                       <p className="text-xs text-rose-200 font-medium leading-relaxed">
@@ -1441,52 +595,48 @@ export default function LinnkProVoiceAssistant({
                       </p>
                       <button
                         onClick={startVoiceCall}
-                        className="mt-2 px-3 py-1 bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold rounded-lg transition"
+                        className="mt-2 px-3 py-1 bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold rounded-lg transition cursor-pointer"
                       >
                         🔄 Reintentar conexión de voz
                       </button>
                     </div>
                   )}
 
-                  {/* 2. Central Mic Orb with Soundwave Bars */}
+                  {/* 2. Central iAmesero Orb matching exact button design with organic pulse */}
                   <div className="flex flex-col items-center justify-center my-auto py-6 z-10">
-                    <div className="relative flex items-center justify-center gap-6 sm:gap-10">
-                      {/* Left Audio Waveform Bars */}
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-16 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-12 bg-red-500' : 'h-9 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
-                      </div>
+                    <div className="relative flex items-center justify-center">
+                      {/* Outer concentric pulse ring */}
+                      <div 
+                        className={`w-52 h-52 sm:w-60 sm:h-60 rounded-full border border-red-900/30 bg-red-950/10 flex items-center justify-center absolute transition-all duration-300 ${
+                          assistantState === 'user_speaking' || assistantState === 'speaking'
+                            ? 'scale-110 opacity-90'
+                            : 'scale-100 opacity-40'
+                        }`}
+                        style={{
+                          transform: `scale(${1 + audioLevel * 0.3})`
+                        }}
+                      ></div>
+                      
+                      {/* Middle ring with soft red aura */}
+                      <div 
+                        className="w-40 h-40 sm:w-46 sm:h-46 rounded-full border border-red-800/40 bg-red-950/30 flex items-center justify-center absolute shadow-[0_0_50px_rgba(239,68,68,0.25)] transition-all duration-200"
+                        style={{
+                          transform: `scale(${1 + audioLevel * 0.2})`
+                        }}
+                      ></div>
 
-                      {/* Concentric Orb with Central Red Mic Button */}
-                      <div className="relative flex items-center justify-center">
-                        {/* Outermost ring */}
-                        <div className="w-48 h-48 sm:w-52 sm:h-52 rounded-full border border-red-950/60 bg-red-950/20 flex items-center justify-center absolute"></div>
-                        
-                        {/* Middle ring with subtle glow */}
-                        <div className="w-38 h-38 sm:w-42 sm:h-42 rounded-full border border-red-800/40 bg-red-900/30 flex items-center justify-center absolute shadow-[0_0_40px_rgba(239,68,68,0.25)]"></div>
-
-                        {/* Solid Red Central Circle Button */}
-                        <button
-                          id="linnkpro-interactive-center-mic"
-                          onClick={handleCentralMicClick}
-                          className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-b from-[#EF4444] to-[#DC2626] flex items-center justify-center shadow-2xl shadow-red-600/40 relative z-10 active:scale-95 hover:scale-105 transition-all duration-200 cursor-pointer focus:outline-none focus:ring-4 focus:ring-red-500/30"
-                          title={assistantState === 'speaking' ? 'Toca para interrumpir' : transcript ? 'Toca para enviar' : 'Micrófono activo'}
-                        >
-                          <Mic className="w-11 h-11 sm:w-12 sm:h-12 text-white stroke-[2.5]" />
-                        </button>
-                      </div>
-
-                      {/* Right Audio Waveform Bars */}
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-16 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-12 bg-red-500' : 'h-9 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-10 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-8 bg-red-500' : 'h-6 bg-[#681c22]'}`}></span>
-                        <span className={`w-1.5 rounded-full transition-all duration-300 ${assistantState === 'listening' ? 'h-6 bg-red-600 animate-pulse' : assistantState === 'speaking' ? 'h-5 bg-red-500' : 'h-4 bg-[#681c22]'}`}></span>
-                      </div>
+                      {/* Central Circle Button matching exact design (Dark background + Red border + Chef Hat + Gold Sparkle) */}
+                      <button
+                        id="linnkpro-interactive-center-mic"
+                        onClick={handleCentralOrbClick}
+                        className="w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 sm:border-[3px] border-[#EF4444] bg-[#0E131F]/95 flex items-center justify-center shadow-[0_0_35px_rgba(239,68,68,0.5)] hover:shadow-[0_0_45px_rgba(239,68,68,0.7)] relative z-10 active:scale-95 hover:scale-105 transition-all duration-200 cursor-pointer focus:outline-none group"
+                        title={assistantState === 'speaking' ? 'Toca para interrumpir' : 'iAmesero activo'}
+                      >
+                        <div className="relative flex items-center justify-center">
+                          <ChefHat className="w-13 h-13 sm:w-15 sm:h-15 text-white stroke-[2.2] group-hover:scale-105 transition-transform" />
+                          <Sparkles className="w-6 h-6 text-amber-400 absolute -top-2.5 -right-2.5 animate-pulse drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+                        </div>
+                      </button>
                     </div>
                   </div>
 
@@ -1507,39 +657,25 @@ export default function LinnkProVoiceAssistant({
                             </div>
                           </div>
                           <button
-                            onClick={() => {
-                              endVoiceCall();
-                              setActiveTab('chat');
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold transition flex items-center gap-1 shadow-md"
+                            onClick={() => setActiveTab('chat')}
+                            className="px-3 py-1.5 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold transition flex items-center gap-1 shadow-md cursor-pointer"
                           >
                             Ver Carrito <ArrowRight className="w-3 h-3" />
                           </button>
                         </div>
                       )}
 
-                      {lastAssistantMessage.actionPayload.type === 'ORDER_CONFIRMATION_REQUESTED' && (
-                        <div className="bg-gradient-to-r from-[#1E1418] to-[#111827] border border-amber-500/50 rounded-2xl p-3 shadow-xl flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                              <AlertCircle className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-bold text-white">Confirmar Pedido</h4>
-                              <p className="text-[11px] text-amber-400 font-bold">
-                                Total: ${lastAssistantMessage.actionPayload.data.grandTotal?.toLocaleString('es-CO')} COP
-                              </p>
-                            </div>
+                      {lastAssistantMessage.actionPayload.type === 'ORDER_CREATE_CONFIRMED' && (
+                        <div className="bg-[#111827] border border-emerald-500/40 rounded-2xl p-3 shadow-lg flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold flex-shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
                           </div>
-                          <button
-                            onClick={async () => {
-                              await handleExecuteOrderCreation(lastAssistantMessage.actionPayload?.data);
-                              handleSendMessage("Sí, confirmo mi pedido ahora.");
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold transition shadow-md"
-                          >
-                            Confirmar
-                          </button>
+                          <div>
+                            <h4 className="text-xs font-bold text-white">Pedido Confirmado</h4>
+                            <p className="text-[11px] text-slate-300">
+                              El restaurante ya está preparando tu orden.
+                            </p>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1547,46 +683,9 @@ export default function LinnkProVoiceAssistant({
                 </div>
               )}
 
-              {/* VIEW 2: CHAT & CART TRANSCRIPT VIEW (Matching 3. Chat del Mesero IA) */}
+              {/* VIEW 2: CHAT & CART TRANSCRIPT VIEW */}
               {activeTab === 'chat' && (
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm bg-[#121722] scrollbar-thin scrollbar-thumb-slate-800">
-                  {/* Welcome Message Card if initial conversation */}
-                  {messages.length <= 1 && (
-                    <div className="bg-[#161D2B] border border-white/10 rounded-2xl p-4 shadow-md space-y-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-full bg-[#EF4444] text-white flex items-center justify-center flex-shrink-0 shadow-sm">
-                          <ChefHat className="w-4 h-4" />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-white font-medium text-sm leading-relaxed">
-                            ¡Hola! Soy tu asistente de <span className="font-bold text-white">Linnk<span className="text-[#EF4444]">Pro</span></span>. ¿Qué te gustaría ordenar hoy?
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            Puedo recomendarte platos, consultar tiendas abiertas o armar tu pedido.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Prompt Suggestion Pills */}
-                      <div className="pt-2 border-t border-white/5 flex flex-wrap gap-2">
-                        {[
-                          { label: '🍔 ¿Qué hamburguesas recomiendas?', query: '¿Qué hamburguesas me recomiendas de las tiendas abiertas?' },
-                          { label: '🍕 ¿Cuáles son las pizzas más pedidas?', query: '¿Cuáles son las mejores pizzas disponibles?' },
-                          { label: '🛒 Ver mi carrito de compras', query: '¿Qué tengo en mi carrito?' },
-                          { label: '🛵 ¿Cuánto demora el domicilio?', query: '¿Cuánto demora el domicilio y cuál es el costo?' }
-                        ].map((chip, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handleSendMessage(chip.query)}
-                            className="px-3 py-1.5 rounded-full bg-[#0E131F] hover:bg-slate-800 text-xs text-slate-200 hover:text-white border border-white/10 transition text-left active:scale-95"
-                          >
-                            {chip.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {messages.map((msg) => (
                     <div
                       key={msg.id}
@@ -1615,65 +714,7 @@ export default function LinnkProVoiceAssistant({
                       {/* Rich Action Attachments */}
                       {msg.actionPayload && (
                         <div className="w-full mt-2 space-y-2 pl-9">
-                          {/* 1. Products Carousel Result */}
-                          {msg.actionPayload.type === 'PRODUCTS_SEARCHED' && msg.actionPayload.data?.products?.length > 0 && (
-                            <div className="bg-[#161D2B] border border-white/10 rounded-2xl p-3 shadow-md">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-bold text-[#EF4444] flex items-center gap-1">
-                                  <ShoppingBag className="w-3.5 h-3.5" />
-                                  Platos disponibles ({msg.actionPayload.data.products.length})
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1">
-                                {msg.actionPayload.data.products.map((p: ProductItem) => {
-                                  const store = catalogStores[p.userId];
-                                  return (
-                                    <div
-                                      key={p.id}
-                                      className="flex items-center gap-2.5 p-2 rounded-xl bg-[#0E131F] border border-white/10 hover:border-red-500/50 transition"
-                                    >
-                                      {p.imageURL ? (
-                                        <img
-                                          src={p.imageURL}
-                                          alt={p.name}
-                                          referrerPolicy="no-referrer"
-                                          className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                                        />
-                                      ) : (
-                                        <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 flex-shrink-0">
-                                          <ShoppingBag className="w-5 h-5" />
-                                        </div>
-                                      )}
-
-                                      <div className="flex-1 min-w-0">
-                                        <h4 className="text-xs font-bold text-white truncate">{p.name}</h4>
-                                        <p className="text-[11px] text-slate-400 truncate">
-                                          {store?.displayName || 'Restaurante'} • {p.category || 'Comida'}
-                                        </p>
-                                        <span className="text-xs font-extrabold text-amber-400">
-                                          ${p.price.toLocaleString('es-CO')} COP
-                                        </span>
-                                      </div>
-
-                                      <button
-                                        onClick={() => {
-                                          addProductToCart(p, 1);
-                                          setCart(getStoredCart());
-                                          handleSendMessage(`Agregué 1 ${p.name} al carrito.`);
-                                        }}
-                                        className="px-2.5 py-1.5 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs font-bold flex items-center gap-1 transition shadow"
-                                      >
-                                        <Plus className="w-3.5 h-3.5" />
-                                        Agregar
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* 2. Cart Summary Card */}
+                          {/* Cart Summary Card */}
                           {msg.actionPayload.type === 'CART_SUMMARY' && (
                             <div className="bg-[#161D2B] border border-white/10 rounded-2xl p-3.5 shadow-md">
                               <div className="flex items-center justify-between mb-2">
@@ -1687,7 +728,7 @@ export default function LinnkProVoiceAssistant({
                                       clearAllCart();
                                       setCart([]);
                                     }}
-                                    className="text-[11px] text-[#EF4444] hover:underline flex items-center gap-0.5 font-bold"
+                                    className="text-[11px] text-[#EF4444] hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
                                   >
                                     <Trash2 className="w-3 h-3" /> Vaciar
                                   </button>
@@ -1710,20 +751,20 @@ export default function LinnkProVoiceAssistant({
                                       <div className="flex items-center gap-1.5">
                                         <button
                                           onClick={() => {
-                                            updateCartQuantity(item.id, item.quantity - 1);
-                                            setCart(getStoredCart());
+                                            const updated = updateCartQuantity(item.id, item.quantity - 1);
+                                            setCart(updated);
                                           }}
-                                          className="w-6 h-6 rounded-md bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-white"
+                                          className="w-6 h-6 rounded-md bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-white cursor-pointer"
                                         >
                                           <Minus className="w-3 h-3" />
                                         </button>
                                         <span className="w-5 text-center font-bold text-white">{item.quantity}</span>
                                         <button
                                           onClick={() => {
-                                            updateCartQuantity(item.id, item.quantity + 1);
-                                            setCart(getStoredCart());
+                                            const updated = updateCartQuantity(item.id, item.quantity + 1);
+                                            setCart(updated);
                                           }}
-                                          className="w-6 h-6 rounded-md bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-white"
+                                          className="w-6 h-6 rounded-md bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-white cursor-pointer"
                                         >
                                           <Plus className="w-3 h-3" />
                                         </button>
@@ -1755,54 +796,7 @@ export default function LinnkProVoiceAssistant({
                             </div>
                           )}
 
-                          {/* 3. Order Confirmation Proposal Card */}
-                          {msg.actionPayload.type === 'ORDER_CONFIRMATION_REQUESTED' && msg.actionPayload.data && (
-                            <div className="bg-gradient-to-b from-[#1C1824] to-[#121722] border border-amber-500/50 rounded-2xl p-4 shadow-xl">
-                              <div className="flex items-center gap-2 mb-2 text-amber-400 font-black text-xs uppercase tracking-wider">
-                                <AlertCircle className="w-4 h-4" />
-                                Confirmación de Pedido
-                              </div>
-
-                              <div className="space-y-1.5 text-xs text-gray-300 mb-3 bg-[#0E131F] border border-white/10 p-3 rounded-xl">
-                                <div className="flex justify-between">
-                                  <span className="text-slate-400">Nombre:</span>
-                                  <span className="font-bold text-white">{msg.actionPayload.data.customerName || 'Cliente'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-slate-400">Teléfono:</span>
-                                  <span className="font-bold text-white">{msg.actionPayload.data.customerPhone || 'N/A'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-slate-400">Dirección:</span>
-                                  <span className="font-bold text-white text-right max-w-[60%] truncate">{msg.actionPayload.data.customerAddress || 'N/A'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-slate-400">Método de Pago:</span>
-                                  <span className="font-bold text-amber-400 uppercase">{msg.actionPayload.data.paymentMethod === 'delivery_cash' ? 'Efectivo contra entrega' : 'Transferencia'}</span>
-                                </div>
-                                <div className="flex justify-between pt-1 border-t border-white/10 text-sm font-black">
-                                  <span className="text-white">Total a pagar:</span>
-                                  <span className="text-amber-400">${msg.actionPayload.data.grandTotal?.toLocaleString('es-CO')} COP</span>
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={async () => {
-                                    await handleExecuteOrderCreation(msg.actionPayload?.data);
-                                    handleSendMessage("Sí, confirmo mi pedido ahora.");
-                                  }}
-                                  disabled={isOrdering}
-                                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#EF4444] to-[#DC2626] hover:from-[#DC2626] hover:to-[#B91C1C] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-lg transition uppercase tracking-wider"
-                                >
-                                  {isOrdering ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                                  Confirmar Pedido Ahora
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* 4. Order Created Success Card */}
+                          {/* Order Created Card */}
                           {msg.actionPayload.type === 'ORDER_CREATE_CONFIRMED' && (
                             <div className="bg-[#161D2B] border border-[#EF4444]/50 rounded-2xl p-4 text-center">
                               <div className="w-10 h-10 mx-auto rounded-full bg-[#EF4444]/20 text-[#EF4444] flex items-center justify-center mb-2">
@@ -1819,7 +813,7 @@ export default function LinnkProVoiceAssistant({
                     </div>
                   ))}
 
-                  {/* Processing / Typing Indicator */}
+                  {/* Processing Indicator */}
                   {assistantState === 'processing' && (
                     <div className="flex items-center gap-2 text-xs text-slate-400 bg-[#182030] border border-white/10 px-3.5 py-2 rounded-2xl w-fit">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#EF4444]" />
@@ -1831,9 +825,9 @@ export default function LinnkProVoiceAssistant({
                 </div>
               )}
 
-              {/* BOTTOM CONTROLS & INPUT BAR (Matching Diseño de chat.png) */}
+              {/* BOTTOM CONTROLS & INPUT BAR */}
               <div className="p-3 sm:p-4 bg-[#161D2B] border-t border-white/10 flex flex-col gap-3">
-                {/* Pill Shaped Text Input matching screenshot */}
+                {/* Pill Shaped Text Input */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1 relative flex items-center bg-[#0E131F] border border-white/10 rounded-full px-4 py-2.5 shadow-inner focus-within:border-[#EF4444]/60 transition">
                     <input
@@ -1843,52 +837,41 @@ export default function LinnkProVoiceAssistant({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleSendMessage(inputText);
+                          handleSendTextMessage(inputText);
                         }
                       }}
-                      placeholder="Escribe tu mensaje..."
+                      placeholder="Escribe un mensaje o habla libremente..."
                       className="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none pr-10"
                     />
 
                     {inputText.trim() ? (
                       <button
-                        onClick={() => handleSendMessage(inputText)}
-                        className="absolute right-1.5 w-8 h-8 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center transition active:scale-95 shadow-md"
+                        onClick={() => handleSendTextMessage(inputText)}
+                        className="absolute right-1.5 w-8 h-8 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center transition active:scale-95 shadow-md cursor-pointer"
                         title="Enviar mensaje"
                       >
                         <Send className="w-4 h-4" />
                       </button>
                     ) : (
-                      <button
-                        onClick={() => {
-                          if (isInVoiceCall) {
-                            endVoiceCall();
-                          } else {
-                            setActiveTab('call');
-                            startVoiceCall();
-                          }
-                        }}
-                        className={`absolute right-1.5 w-8 h-8 rounded-full flex items-center justify-center transition active:scale-95 ${
-                          isInVoiceCall 
-                            ? 'bg-[#EF4444] text-white animate-pulse' 
-                            : 'bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700'
-                        }`}
-                        title="Hablar por voz"
-                      >
-                        <Mic className="w-4 h-4" />
-                      </button>
+                      <div className="absolute right-2 flex items-center">
+                        <span className={`w-2.5 h-2.5 rounded-full ${
+                          assistantState === 'listening' ? 'bg-emerald-400 animate-pulse' :
+                          assistantState === 'user_speaking' ? 'bg-blue-400 animate-ping' :
+                          assistantState === 'speaking' ? 'bg-amber-400' : 'bg-slate-600'
+                        }`}></span>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                {/* Primary Call Controls (Silenciar, Finalizar, Altavoz) when in voice mode */}
+                {/* Primary Call Controls (Silenciar, Finalizar, Altavoz) */}
                 {activeTab === 'call' && (
                   <div className="flex items-center justify-around pt-1 pb-1">
                     {/* Toggle User Microphone (Silenciar) */}
                     <button
                       id="linnkpro-voice-mic-toggle-btn"
-                      onClick={() => setIsMicMuted(prev => !prev)}
-                      className="flex flex-col items-center gap-1.5 group transition"
+                      onClick={handleToggleMicMute}
+                      className="flex flex-col items-center gap-1.5 group transition cursor-pointer"
                     >
                       <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition transform active:scale-95 ${
                         isMicMuted 
@@ -1897,15 +880,17 @@ export default function LinnkProVoiceAssistant({
                       }`}>
                         {isMicMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 text-[#EF4444] stroke-[2]" />}
                       </div>
-                      <span className="text-[11px] text-slate-400 font-medium group-hover:text-white transition">Silenciar</span>
+                      <span className="text-[11px] text-slate-400 font-medium group-hover:text-white transition">
+                        {isMicMuted ? 'Activado' : 'Silenciar'}
+                      </span>
                     </button>
 
-                    {/* Main Call Action Button (Finalizar con icono X rojo o Iniciar) */}
-                    {isInVoiceCall ? (
+                    {/* Main Call Action Button: Finalizar (Red button with X) or Iniciar */}
+                    {assistantState !== 'idle' ? (
                       <button
                         id="linnkpro-voice-end-call-btn"
                         onClick={endVoiceCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-1.5 group cursor-pointer"
                       >
                         <div className="w-16 h-16 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center shadow-xl shadow-red-600/30 group-hover:scale-105 transition transform active:scale-95">
                           <X className="w-7 h-7 text-white stroke-[2.5]" />
@@ -1916,20 +901,20 @@ export default function LinnkProVoiceAssistant({
                       <button
                         id="linnkpro-voice-start-call-btn"
                         onClick={startVoiceCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-1.5 group cursor-pointer"
                       >
                         <div className="w-16 h-16 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white flex items-center justify-center shadow-xl shadow-red-600/30 group-hover:scale-105 transition transform active:scale-95 animate-pulse">
                           <Mic className="w-7 h-7 text-white stroke-[2.5]" />
                         </div>
-                        <span className="text-[11px] font-semibold text-white tracking-wide">Hablar</span>
+                        <span className="text-[11px] font-semibold text-white tracking-wide">Iniciar</span>
                       </button>
                     )}
 
                     {/* Toggle AI Speaker Voice Output (Altavoz) */}
                     <button
                       id="linnkpro-voice-speaker-toggle-btn"
-                      onClick={() => setIsVoiceMuted(prev => !prev)}
-                      className="flex flex-col items-center gap-1.5 group transition"
+                      onClick={handleToggleSpeakerMute}
+                      className="flex flex-col items-center gap-1.5 group transition cursor-pointer"
                     >
                       <div className={`w-14 h-14 rounded-full flex items-center justify-center border transition transform active:scale-95 ${
                         isVoiceMuted 
