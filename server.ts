@@ -338,14 +338,13 @@ Formatos válidos para:
           res.json(ttsResult);
           return;
         } catch (oErr: any) {
-          console.warn("OpenAI TTS synthesis note, using browser natural voice fallback:", oErr?.message || oErr);
+          console.warn("OpenAI TTS synthesis note:", oErr?.message || oErr);
         }
       }
 
-      // Seamless fallback to browser natural speech synthesis
-      res.status(200).json({ fallback: true, message: "Browser neural voice active" });
+      res.status(200).json({ error: "OpenAI TTS unavailable" });
     } catch (error: any) {
-      res.status(200).json({ fallback: true, message: "Browser neural voice active" });
+      res.status(200).json({ error: "TTS generation failed" });
     }
   };
 

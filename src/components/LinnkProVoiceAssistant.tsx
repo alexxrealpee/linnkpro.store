@@ -662,108 +662,12 @@ export default function LinnkProVoiceAssistant({
           return;
         }
       } catch (err) {
-        console.warn("Audio playback error, falling back to Web Speech API:", err);
+        console.warn("OpenAI Audio playback error:", err);
       }
     }
 
-    // Fallback: Enhanced Web Speech API synthesis (Natural, Neural, Warm Colombian Spanish Voice)
-    if ('speechSynthesis' in window) {
-      // Natural human phonetic formatting for fluent conversational reading
-      const cleanSpeech = text
-        .replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-        .replace(/[*_#`~>]/g, '')
-        .replace(/https?:\/\/\S+/g, '')
-        .replace(/\b1x\s+/gi, 'una porción de ')
-        .replace(/\b2x\s+/gi, 'dos porciones de ')
-        .replace(/\b3x\s+/gi, 'tres porciones de ')
-        .replace(/\$\s*([0-9]{1,3})\.000\s*(?:COP|cop|pesos)?/gi, '$1 mil pesos')
-        .replace(/\$\s*([0-9]{1,3})\.500\s*(?:COP|cop|pesos)?/gi, '$1 mil quinientos pesos')
-        .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
-        .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
-        .replace(/\$/g, '')
-        .replace(/\bd[oó]lares\b/gi, 'pesos')
-        .replace(/\bd[oó]lar\b/gi, 'peso')
-        .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
-        .replace(/([0-9]+)\.500\s*pesos/gi, '$1 mil quinientos pesos')
-        .replace(/([0-9]+)\.([0-9]{3})\s*pesos/gi, '$1 mil $2 pesos')
-        .replace(/¡/g, '')
-        .replace(/!/g, '. ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const utterance = new SpeechSynthesisUtterance(cleanSpeech);
-      utterance.lang = 'es-CO';
-      utterance.rate = 0.95; // Relaxed, friendly human pacing
-      utterance.pitch = 1.0; // Natural warm pitch
-
-      const voices = window.speechSynthesis.getVoices();
-      const spanishVoices = voices.filter(v => v.lang.toLowerCase().includes('es') || v.lang.toLowerCase().startsWith('es'));
-
-      // Preferred natural and neural voice identifiers across Windows, macOS, iOS, Android, and Chrome
-      const naturalKeywords = ['natural', 'neural', 'online', 'enhanced', 'premium', 'high quality'];
-      const preferredFemaleNames = [
-        'salome', 'dalia', 'jimena', 'paloma', 'monica', 'mónica', 'paulina', 'helena', 'lucia', 'lucía',
-        'laura', 'sofia', 'sofía', 'sabina', 'camila', 'valentina', 'victoria', 'google español',
-        'es-co', 'es_co'
-      ];
-      const maleKeywords = [
-        'male', 'hombre', 'jorge', 'diego', 'miguel', 'carlos', 'pablo', 'raul',
-        'david', 'alvaro', 'enrique', 'juan', 'manuel', 'antonio'
-      ];
-
-      // 1. Top priority: Neural/Natural Spanish Colombian or Latin American female voice
-      let bestVoice = spanishVoices.find(v => {
-        const nameLower = v.name.toLowerCase();
-        const isNatural = naturalKeywords.some(kw => nameLower.includes(kw));
-        const isPref = preferredFemaleNames.some(kw => nameLower.includes(kw));
-        const isMale = maleKeywords.some(kw => nameLower.includes(kw));
-        return (isNatural && isPref) && !isMale;
-      });
-
-      // 2. Second priority: Any Neural/Natural voice that isn't male
-      if (!bestVoice) {
-        bestVoice = spanishVoices.find(v => {
-          const nameLower = v.name.toLowerCase();
-          const isNatural = naturalKeywords.some(kw => nameLower.includes(kw));
-          const isMale = maleKeywords.some(kw => nameLower.includes(kw));
-          return isNatural && !isMale;
-        });
-      }
-
-      // 3. Third priority: Preferred female names in Spanish
-      if (!bestVoice) {
-        bestVoice = spanishVoices.find(v => {
-          const nameLower = v.name.toLowerCase();
-          const isPref = preferredFemaleNames.some(kw => nameLower.includes(kw));
-          const isMale = maleKeywords.some(kw => nameLower.includes(kw));
-          return isPref && !isMale;
-        });
-      }
-
-      // 4. Fourth priority: Any Spanish voice that is not explicitly male
-      if (!bestVoice) {
-        bestVoice = spanishVoices.find(v => {
-          const nameLower = v.name.toLowerCase();
-          return !maleKeywords.some(kw => nameLower.includes(kw));
-        });
-      }
-
-      // 5. Fallback to any available Spanish voice
-      if (!bestVoice && spanishVoices.length > 0) {
-        bestVoice = spanishVoices[0];
-      }
-
-      if (bestVoice) {
-        utterance.voice = bestVoice;
-      }
-
-      utterance.onend = onSpeechComplete;
-      utterance.onerror = onSpeechComplete;
-
-      window.speechSynthesis.speak(utterance);
-    } else {
-      onSpeechComplete();
-    }
+    // Direct completion when no audio data is received (100% OpenAI voice only, no browser speech synthesis)
+    onSpeechComplete();
   };
 
   // Fallback client-side matching engine when backend API or network connection is interrupted
