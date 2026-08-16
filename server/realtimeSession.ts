@@ -10,45 +10,45 @@ const OPENAI_API_URL = 'https://api.openai.com/v1/realtime/sessions';
 export async function createRealtimeSessionHandler(req: express.Request, res: express.Response, apiKey: string) {
   try {
     if (!apiKey) {
-      res.status(500).json({ error: "OpenAI API Key no está configurada en el servidor." });
+      res.status(500).json({ error: "OpenAI API Key no está configurada en el backend." });
       return;
     }
 
-    const { catalogSummary } = req.body || {};
+    const instructions = `Eres "IAMesero", la mesera y asistente virtual inteligente de LinnkPro.Store.
+Hablas con la voz femenina "marin" en español colombiano natural, cálido, amable, respetuoso y cercano.
 
-    const instructions = `Eres "Mesero IA", el mesero virtual inteligente de LinnkPro.Store.
-Tu personalidad es cálida, amable, atenta, rápida y natural, con un trato cordial, respetuoso y amigable colombiano ("¡Con mucho gusto!", "¡Claro que sí!").
-
-OBJETIVOS Y ESTILO DE VOZ NATURAL:
-- Atender a los clientes de forma natural como un mesero de restaurante real.
-- Respuestas concisas, conversacionales y directas. No des respuestas largas ni leas listas eternas; sugiere 2 o 3 opciones apetitosas a la vez.
-- Pronuncia los precios en pesos de manera natural (por ejemplo: "veinticinco mil pesos" en lugar de signos de pesos o números aislados).
-- Consultar restaurantes abiertos, platos, precios e ingredientes en tiempo real con tus herramientas.
-- Gestionar el carrito de compras mediante tus herramientas (agregar, modificar cantidad, eliminar, vaciar, ver carrito).
-- Tomar y confirmar pedidos con información clara y amable.
-
-REGLAS FUNDAMENTALES:
-1. NUNCA inventes platos, precios ni restaurantes. Siempre consulta la información con las herramientas (buscarRestaurantes, buscarProductos, obtenerMenu, etc.).
-2. Cuando el cliente pida agregar un plato, agrégalo inmediatamente con 'agregarAlCarrito' y confírmalo con calidez ("¡Listo! Agregué una Hamburguesa Especial a tu carrito. ¿Te gustaría algo de tomar?").
-3. Permite interrupciones y pausas naturales.`;
+REGLAS DE CONVERSACIÓN Y VOZ:
+1. Habla como una persona real atendiendo una mesa en Colombia: amable, clara, espontánea y con calidez natural ("¡Hola! Qué gusto saludarte", "¡Con mucho gusto!", "¡Claro que sí!").
+2. Respuestas breves y conversacionales: entre 1 y 3 frases fluidas. No digas párrafos largos ni recites listas interminables; ofrece 2 o 3 opciones apetitosas a la vez.
+3. Pronuncia siempre los precios en pesos colombianos de forma natural (ejemplo: "veinticinco mil pesos", "doce mil quinientos pesos", nunca digas signos ni números fríos).
+4. No leas emojis, símbolos de Markdown, JSON, asteriscos ni etiquetas técnicas.
+5. Permite pausas e interrupciones naturales cuando el cliente hable.
+6. Realiza acciones en tiempo real con tus herramientas:
+   - Consultar menú y opciones disponibles con 'buscarProductos', 'obtenerMenu', 'buscarRestaurantes'.
+   - Consultar disponibilidad de platos con 'buscarProducto'.
+   - Agregar platos al pedido con 'agregarAlCarrito'.
+   - Modificar cantidades o ingredientes con 'actualizarCantidadCarrito'.
+   - Eliminar productos con 'eliminarDelCarrito'.
+   - Consultar cantidades y totales con 'obtenerCarrito'.
+   - Confirmar y formalizar pedidos con 'crearPedido'.`;
 
     // Tool declarations for OpenAI Realtime session
     const tools = [
       {
         type: "function",
         name: "buscarRestaurantes",
-        description: "Busca los restaurantes o tiendas disponibles en la plataforma LinnkPro.",
+        description: "Busca y lista los restaurantes o tiendas gastronómicas disponibles en LinnkPro.",
         parameters: {
           type: "object",
           properties: {
-            query: { type: "string", description: "Nombre o tipo de comida del restaurante (ej: hamburguesas, sushi, pizza)." }
+            query: { type: "string", description: "Nombre del restaurante o tipo de comida (ej: hamburguesas, sushi, pizza)." }
           }
         }
       },
       {
         type: "function",
         name: "buscarProductos",
-        description: "Busca platos o productos en los menús de los restaurantes.",
+        description: "Busca platos, bebidas o postres en los menús disponibles.",
         parameters: {
           type: "object",
           properties: {
@@ -61,7 +61,7 @@ REGLAS FUNDAMENTALES:
       {
         type: "function",
         name: "buscarProducto",
-        description: "Obtiene información detallada de un plato específico (precio exacto, ingredientes, restaurante).",
+        description: "Obtiene información detallada y disponibilidad de un plato específico (precio exacto, ingredientes, restaurante).",
         parameters: {
           type: "object",
           properties: {
@@ -94,7 +94,7 @@ REGLAS FUNDAMENTALES:
       {
         type: "function",
         name: "agregarAlCarrito",
-        description: "Agrega uno o varios productos al carrito del cliente.",
+        description: "Agrega uno o varios productos al carrito de compras del cliente.",
         parameters: {
           type: "object",
           properties: {
@@ -108,12 +108,12 @@ REGLAS FUNDAMENTALES:
       {
         type: "function",
         name: "actualizarCantidadCarrito",
-        description: "Modifica la cantidad de un producto que ya está en el carrito.",
+        description: "Modifica la cantidad de un producto que ya está en el carrito (0 para eliminarlo).",
         parameters: {
           type: "object",
           properties: {
             nombreProducto: { type: "string", description: "Nombre del producto a modificar." },
-            nuevaCantidad: { type: "number", description: "Nueva cantidad deseada (0 para eliminar)." }
+            nuevaCantidad: { type: "number", description: "Nueva cantidad deseada." }
           },
           required: ["nombreProducto", "nuevaCantidad"]
         }
@@ -121,7 +121,7 @@ REGLAS FUNDAMENTALES:
       {
         type: "function",
         name: "eliminarDelCarrito",
-        description: "Elimina un producto del carrito del cliente.",
+        description: "Elimina un producto del carrito de compras del cliente.",
         parameters: {
           type: "object",
           properties: {
@@ -133,7 +133,7 @@ REGLAS FUNDAMENTALES:
       {
         type: "function",
         name: "obtenerCarrito",
-        description: "Consulta los productos actuales en el carrito, subtotal, domicilio y total general.",
+        description: "Consulta los productos actuales en el carrito, cantidades, subtotal, domicilio y total a pagar.",
         parameters: {
           type: "object",
           properties: {}
@@ -177,48 +177,68 @@ REGLAS FUNDAMENTALES:
       }
     ];
 
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "coral",
-        modalities: ["audio", "text"],
-        instructions,
-        tools,
-        input_audio_transcription: {
-          model: "whisper-1"
-        },
-        turn_detection: {
-          type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 600,
-          create_response: true
-        }
-      })
-    });
+    const candidateRealtimeModels = [
+      "gpt-realtime-2.1",
+      "gpt-4o-realtime-preview-2024-12-17",
+      "gpt-4o-realtime-preview",
+      "gpt-4o-mini-realtime-preview"
+    ];
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let parsedErr: any = null;
+    let sessionData: any = null;
+    let lastError: any = null;
+
+    for (const modelName of candidateRealtimeModels) {
       try {
-        parsedErr = JSON.parse(errText);
-      } catch (e) {
-        parsedErr = { message: errText };
+        const response = await fetch(OPENAI_API_URL, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: modelName,
+            voice: "marin",
+            modalities: ["audio", "text"],
+            instructions,
+            tools,
+            input_audio_transcription: {
+              model: "whisper-1"
+            },
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 600,
+              create_response: true
+            }
+          })
+        });
+
+        if (response.ok) {
+          sessionData = await response.json();
+          break;
+        } else {
+          const errText = await response.text();
+          try {
+            lastError = JSON.parse(errText);
+          } catch {
+            lastError = { message: errText };
+          }
+          console.warn(`Model ${modelName} returned status ${response.status}:`, lastError?.error?.message || lastError);
+        }
+      } catch (err: any) {
+        lastError = err;
       }
-      res.status(response.status).json({
-        error: parsedErr?.error?.message || "Error al generar sesión efímera en OpenAI Realtime API",
-        status: response.status,
-        details: parsedErr
+    }
+
+    if (!sessionData) {
+      res.status(400).json({
+        error: lastError?.error?.message || "Error al generar sesión efímera con gpt-realtime-2.1 en OpenAI Realtime API",
+        details: lastError
       });
       return;
     }
 
-    const sessionData = await response.json();
     res.json(sessionData);
   } catch (error: any) {
     console.error("Error creating OpenAI Realtime Session:", error);

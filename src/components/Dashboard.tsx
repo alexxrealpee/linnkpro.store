@@ -246,27 +246,6 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
     } catch (err) {
       console.warn("Web Audio API chime error:", err);
     }
-
-    // 2. Speak "Llegó un pediidooo"
-    try {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance("Llegó un pediidooo");
-        utterance.lang = "es-ES";
-        utterance.rate = 0.95;
-        utterance.pitch = 1.15;
-
-        const voices = window.speechSynthesis.getVoices();
-        const esVoice = voices.find(v => v.lang.toLowerCase().startsWith('es'));
-        if (esVoice) {
-          utterance.voice = esVoice;
-        }
-
-        window.speechSynthesis.speak(utterance);
-      }
-    } catch (err) {
-      console.warn("Speech synthesis error:", err);
-    }
   };
 
   const handleSyncOrders = async () => {
@@ -428,13 +407,6 @@ export default function Dashboard({ userProfile, onLogout, onNavigateAdmin }: Da
   useEffect(() => {
     loadDashboardData();
   }, [profile.uid]);
-
-  // Pre-load speech synthesis voices
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.getVoices();
-    }
-  }, []);
 
   // Real-time background subscriptions (orders and products)
   useEffect(() => {

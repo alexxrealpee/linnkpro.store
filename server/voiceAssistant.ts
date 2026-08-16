@@ -788,23 +788,38 @@ function convertNumbersToNaturalSpokenSpanish(text: string): string {
     .trim();
 }
 
-// Generate OpenAI Text-to-Speech (ChatGPT Voice with HD Ultra-Natural Audio)
+// Generate OpenAI Text-to-Speech (Powered by OpenAI with voice "marin")
 export async function generateOpenAITTS(openai: OpenAI, text: string): Promise<{ audio: string; mimeType: string }> {
   const cleanText = convertNumbersToNaturalSpokenSpanish(text).substring(0, 500);
 
-  const mp3Response = await openai.audio.speech.create({
-    model: "tts-1-hd", // High-Definition neural model for rich, human-like voice quality
-    voice: "coral",   // Warm, highly expressive, natural human conversational voice for Spanish
-    input: cleanText,
-    response_format: "mp3",
-    speed: 1.0
-  });
+  const candidateTTSModels = [
+    "gpt-4o-mini-tts",
+    "gpt-4o-mini-audio-preview",
+    "tts-1"
+  ];
 
-  const buffer = Buffer.from(await mp3Response.arrayBuffer());
-  return {
-    audio: buffer.toString('base64'),
-    mimeType: 'audio/mp3'
-  };
+  let lastErr: any = null;
+  for (const modelName of candidateTTSModels) {
+    try {
+      const mp3Response = await openai.audio.speech.create({
+        model: modelName as any,
+        voice: "marin" as any,
+        input: cleanText,
+        response_format: "mp3",
+        speed: 1.0
+      });
+
+      const buffer = Buffer.from(await mp3Response.arrayBuffer());
+      return {
+        audio: buffer.toString('base64'),
+        mimeType: 'audio/mp3'
+      };
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error("Failed to generate OpenAI TTS");
 }
 
 // Process voice assistant message using OpenAI ChatGPT (GPT-4o / GPT-4o-mini)

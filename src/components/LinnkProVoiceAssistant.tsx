@@ -281,11 +281,6 @@ export default function LinnkProVoiceAssistant({
       } catch (e) {}
       currentAudioSourceRef.current = null;
     }
-    if (window.speechSynthesis) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (e) {}
-    }
   };
 
   // Safe SpeechRecognition start & stop helpers (prevents InvalidStateError & mobile mic flapping)
@@ -415,13 +410,6 @@ export default function LinnkProVoiceAssistant({
       setMicPermissionError('Tu navegador no soporta reconocimiento por voz directo. Puedes usar el campo de chat.');
     }
 
-    // Pre-cache voices when available
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-    }
-
     return () => {
       stopAudioPlayback();
       stopAudioAnalyser();
@@ -446,7 +434,7 @@ export default function LinnkProVoiceAssistant({
     setAssistantState('listening');
     setMicPermissionError(null);
 
-    // Warm up AudioContext & SpeechSynthesis synchronously on user gesture (Crucial for mobile Chrome)
+    // Warm up AudioContext synchronously on user gesture (Crucial for mobile browsers)
     try {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!audioContextRef.current) {
@@ -454,9 +442,6 @@ export default function LinnkProVoiceAssistant({
       }
       if (audioContextRef.current.state === 'suspended') {
         audioContextRef.current.resume().catch(() => {});
-      }
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.resume();
       }
     } catch (e) {}
 
