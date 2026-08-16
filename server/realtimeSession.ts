@@ -4,6 +4,7 @@
  */
 
 import express from 'express';
+import { getAvailableCatalog } from './catalogManager';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/realtime/sessions';
 
@@ -14,6 +15,18 @@ export async function createRealtimeSessionHandler(req: express.Request, res: ex
       return;
     }
 
+    const availableCatalog = getAvailableCatalog();
+    const openStores = availableCatalog.stores || [];
+    const availableProducts = availableCatalog.products || [];
+
+    const openStoresSummary = openStores.length > 0
+      ? openStores.map(s => `- ${s.displayName} (@${s.username}): ${s.bio || 'Restaurante afiliado'}`).slice(0, 20).join('\n')
+      : 'No hay tiendas abiertas en este momento.';
+
+    const availableProductsSummary = availableProducts.length > 0
+      ? availableProducts.slice(0, 35).map(p => `- ${p.name}: ${p.price.toLocaleString('es-CO')} pesos (${p.storeName || 'Tienda'}) [${p.category || 'General'}]`).join('\n')
+      : 'No hay productos disponibles actualmente.';
+
     const instructions = `Eres "IAMesero", la mesera y asistente virtual inteligente de LinnkPro.Store.
 Hablas con la voz femenina "marin" en español colombiano natural, cálido, amable, respetuoso y cercano.
 
@@ -23,14 +36,28 @@ REGLAS DE CONVERSACIÓN Y VOZ:
 3. Pronuncia siempre los precios en pesos colombianos de forma natural (ejemplo: "veinticinco mil pesos", "doce mil quinientos pesos", nunca digas signos ni números fríos).
 4. No leas emojis, símbolos de Markdown, JSON, asteriscos ni etiquetas técnicas.
 5. Permite pausas e interrupciones naturales cuando el cliente hable.
-6. Realiza acciones en tiempo real con tus herramientas:
-   - Consultar menú y opciones disponibles con 'buscarProductos', 'obtenerMenu', 'buscarRestaurantes'.
-   - Consultar disponibilidad de platos con 'buscarProducto'.
-   - Agregar platos al pedido con 'agregarAlCarrito'.
-   - Modificar cantidades o ingredientes con 'actualizarCantidadCarrito'.
-   - Eliminar productos con 'eliminarDelCarrito'.
-   - Consultar cantidades y totales con 'obtenerCarrito'.
-   - Confirmar y formalizar pedidos con 'crearPedido'.`;
+
+DIRECTIVA OBLIGATORIA DE CATÁLOGO DISPONIBLE (availableCatalog):
+- Solo puedes recomendar, mencionar, agregar al carrito o vender productos presentes en availableCatalog.
+- Si un producto no aparece en availableCatalog, debes asumir que actualmente no está disponible.
+- NUNCA inventes productos, precios, ingredientes ni disponibilidad.
+- NUNCA menciones, recomiendes ni vendas productos pertenecientes a tiendas cerradas (isClosed === true). Si una tienda está cerrada o no aparece abajo, no existe en tu menú disponible.
+
+TIENDAS ABIERTAS ACTUALMENTE EN availableCatalog (isClosed === false):
+${openStoresSummary}
+
+MUESTRA DE PRODUCTOS DISPONIBLES EN availableCatalog:
+${availableProductsSummary}
+
+HERRAMIENTAS EN TIEMPO REAL:
+- Consultar restaurantes abiertos con 'buscarRestaurantes'.
+- Buscar platos disponibles con 'buscarProductos' o detalles con 'buscarProducto'.
+- Consultar menú de una tienda abierta con 'obtenerMenu'.
+- Agregar platos al pedido con 'agregarAlCarrito'.
+- Modificar cantidades con 'actualizarCantidadCarrito'.
+- Eliminar productos con 'eliminarDelCarrito'.
+- Consultar totales con 'obtenerCarrito'.
+- Confirmar y formalizar pedidos con 'crearPedido'.`;
 
     // Tool declarations for OpenAI Realtime session
     const tools = [

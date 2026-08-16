@@ -711,6 +711,24 @@ export async function fetchProductsAllState(userId: string): Promise<ProductItem
 
 // CREATE CUSTOMER ORDER
 export async function saveOrder(order: OrderItem): Promise<OrderItem> {
+  // 1. Strict Live Validation against Firestore: Verify store is open (isClosed === false)
+  if (order.storeOwnerId && order.storeOwnerId !== 'store_general') {
+    try {
+      const storeDoc = await getDoc(doc(db, 'profiles', order.storeOwnerId));
+      if (storeDoc.exists()) {
+        const storeData = storeDoc.data() as UserProfile;
+        if (storeData.isClosed === true) {
+          const sName = storeData.displayName || storeData.username || 'El restaurante';
+          throw new Error(`No se puede procesar el pedido porque ${sName} se encuentra cerrado actualmente.`);
+        }
+      }
+    } catch (e: any) {
+      if (e?.message && e.message.includes('cerrado')) {
+        throw e;
+      }
+    }
+  }
+
   const result = { ...order };
   const docRef = doc(collection(db, 'orders'));
   result.id = docRef.id;

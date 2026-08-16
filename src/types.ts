@@ -154,6 +154,8 @@ export interface ProductItem {
   stock: number; // Inventory count
   variantsText?: string; // Comma separated variants like "S, M, L" or "Azul, Rojo"
   active: boolean;
+  storeName?: string;
+  storeUsername?: string;
   createdAt?: string;
 }
 

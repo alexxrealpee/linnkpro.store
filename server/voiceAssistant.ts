@@ -29,6 +29,7 @@ export interface CatalogStore {
   phone?: string;
   whatsapp?: string;
   isClosed?: boolean;
+  suspended?: boolean;
 }
 
 export interface CartPayloadItem {
@@ -831,46 +832,21 @@ export async function processOpenAIVoiceAssistantMessage(
 ) {
   let { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
 
-  // Filter open stores and active products
-  let openStores = stores.filter(s => !s.isClosed);
-  if (openStores.length === 0 && stores.length > 0) {
-    openStores = stores;
-  }
-  if (openStores.length === 0 && products.length > 0) {
-    const storeMap = new Map<string, any>();
-    products.forEach(p => {
-      if (p.active !== false) {
-        const sKey = p.userId || p.storeUsername || p.storeName || 'tienda';
-        if (!storeMap.has(sKey)) {
-          storeMap.set(sKey, {
-            uid: p.userId || sKey,
-            username: p.storeUsername || sKey,
-            displayName: p.storeName || p.storeUsername || 'Restaurante',
-            bio: 'Restaurante y tienda oficial en LinnkPro',
-            isClosed: false
-          });
-        }
-      }
-    });
-    openStores = Array.from(storeMap.values());
-  }
+  // Filter open stores strictly: isClosed === true means CLOSED; isClosed === false means OPEN
+  const openStores = stores.filter(s => s.isClosed !== true && !s.suspended);
 
   const openStoreUids = new Set<string>();
+  const openStoreUsernames = new Set<string>();
   openStores.forEach(s => {
     if (s.uid) openStoreUids.add(s.uid);
-    if (s.username) openStoreUids.add(s.username.toLowerCase());
-    if (s.displayName) openStoreUids.add(s.displayName.toLowerCase());
+    if (s.username) openStoreUsernames.add(s.username.toLowerCase());
   });
 
   const openProducts = products.filter(p => {
     if (p.active === false) return false;
-    if (openStores.length === 0) return true;
-    if (!p.userId && !p.storeUsername && !p.storeName) return true;
     return (
       (p.userId && openStoreUids.has(p.userId)) ||
-      (p.storeUsername && openStoreUids.has(p.storeUsername.toLowerCase())) ||
-      (p.storeName && openStoreUids.has(p.storeName.toLowerCase())) ||
-      openStoreUids.size === 0
+      (p.storeUsername && openStoreUsernames.has(p.storeUsername.toLowerCase()))
     );
   });
 
@@ -901,10 +877,15 @@ ESTILO DE VOZ Y CONVERSACIÓN:
 - No uses listas infinitas, viñetas ni símbolos raros que suenen robóticos al hablarse.
 
 REGLAS FUNDAMENTALES Y OBLIGATORIAS:
-1. DISPONIBILIDAD:
+1. DIRECTIVA OBLIGATORIA DE CATÁLOGO DISPONIBLE (availableCatalog):
+   - Solo puedes recomendar, mencionar, agregar al carrito o vender productos presentes en availableCatalog.
+   - Si un producto no aparece en availableCatalog, debes asumir que actualmente no está disponible.
+   - NUNCA inventes productos, precios, ingredientes ni disponibilidad.
+   - NUNCA menciones, recomiendes ni vendas productos pertenecientes a tiendas cerradas (isClosed === true).
+2. DISPONIBILIDAD:
    - Tienes acceso a los restaurantes y tiendas activas listadas abajo.
    - Si el usuario pregunta qué restaurantes o tiendas están abiertos, responde mencionando los nombres de los restaurantes disponibles (ej: "${openStores.map(s => s.displayName).slice(0, 3).join(', ') || 'nuestros restaurantes afiliados'}") y pregúntale qué se le antoja comer hoy.
-2. MONEDA Y PRECIOS:
+3. MONEDA Y PRECIOS:
    - La moneda oficial es PESOS COLOMBIANOS (COP).
    - NUNCA uses el símbolo '$' ni digas 'dólares'. Di y escribe siempre 'pesos' (ej: "15.000 pesos", "veinte mil pesos").
 3. NUNCA inventes productos ni precios que no existan en las herramientas del catálogo.
@@ -1082,48 +1063,22 @@ export async function processVoiceAssistantMessage(
 ) {
   let { products = [], stores = [], cart = [], deliveryFee = 4000, recentOrders = [] } = context;
 
-  // Filter only currently open stores and their active products
-  let openStores = stores.filter(s => !s.isClosed);
-  if (openStores.length === 0 && stores.length > 0) {
-    openStores = stores;
-  }
+  // Filter only currently open stores strictly: isClosed === true means CLOSED; isClosed === false means OPEN
+  const openStores = stores.filter(s => s.isClosed !== true && !s.suspended);
 
-  // If stores list was empty but products are provided with storeName/userId/storeUsername, infer and populate them!
-  if (openStores.length === 0 && products.length > 0) {
-    const storeMap = new Map<string, any>();
-    products.forEach(p => {
-      if (p.active !== false) {
-        const sKey = p.userId || p.storeUsername || p.storeName || 'tienda';
-        if (!storeMap.has(sKey)) {
-          storeMap.set(sKey, {
-            uid: p.userId || sKey,
-            username: p.storeUsername || sKey,
-            displayName: p.storeName || p.storeUsername || 'Restaurante',
-            bio: 'Restaurante y tienda oficial en LinnkPro',
-            isClosed: false
-          });
-        }
-      }
-    });
-    openStores = Array.from(storeMap.values());
-  }
 
   const openStoreUids = new Set<string>();
+  const openStoreUsernames = new Set<string>();
   openStores.forEach(s => {
     if (s.uid) openStoreUids.add(s.uid);
-    if (s.username) openStoreUids.add(s.username.toLowerCase());
-    if (s.displayName) openStoreUids.add(s.displayName.toLowerCase());
+    if (s.username) openStoreUsernames.add(s.username.toLowerCase());
   });
 
   const openProducts = products.filter(p => {
     if (p.active === false) return false;
-    if (openStores.length === 0) return true;
-    if (!p.userId && !p.storeUsername && !p.storeName) return true;
     return (
       (p.userId && openStoreUids.has(p.userId)) ||
-      (p.storeUsername && openStoreUids.has(p.storeUsername.toLowerCase())) ||
-      (p.storeName && openStoreUids.has(p.storeName.toLowerCase())) ||
-      openStoreUids.size === 0
+      (p.storeUsername && openStoreUsernames.has(p.storeUsername.toLowerCase()))
     );
   });
 

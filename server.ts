@@ -16,6 +16,13 @@ import {
   generateOpenAITTS
 } from './server/voiceAssistant';
 import { createRealtimeSessionHandler } from './server/realtimeSession';
+import { 
+  initBackendCatalogManager, 
+  getAvailableCatalog, 
+  syncCatalogFromClient, 
+  validateProductForCart, 
+  validateOrderPayload 
+} from './server/catalogManager';
 
 // Load environmental variables
 dotenv.config();
@@ -350,6 +357,47 @@ Formatos válidos para:
 
   app.post('/api/tts', handleTTSRequest);
   app.post('/api/gemini/tts', handleTTSRequest); // Endpoint alias for backward compatibility
+
+  // Initialize Dynamic Available Catalog Manager (5-min refresh & real-time synchronization)
+  initBackendCatalogManager();
+
+  // API Routes: Dynamic Available Catalog & Real-time Validation
+  app.get('/api/catalog/available', (req, res) => {
+    const catalog = getAvailableCatalog();
+    res.json({
+      success: true,
+      catalog,
+      catalogUpdatedAt: catalog.catalogUpdatedAt,
+      version: catalog.version
+    });
+  });
+
+  app.post('/api/catalog/sync', (req, res) => {
+    const { stores = [], products = [] } = req.body || {};
+    const updated = syncCatalogFromClient(stores, products);
+    res.json({
+      success: true,
+      catalog: updated,
+      catalogUpdatedAt: updated.catalogUpdatedAt,
+      version: updated.version
+    });
+  });
+
+  app.post('/api/catalog/validate-item', async (req, res) => {
+    const { productId, storeId } = req.body || {};
+    if (!productId) {
+      res.status(400).json({ valid: false, reason: "productId es requerido" });
+      return;
+    }
+    const result = await validateProductForCart(productId, storeId);
+    res.json(result);
+  });
+
+  app.post('/api/catalog/validate-order', async (req, res) => {
+    const { items = [], storeOwnerId } = req.body || {};
+    const result = await validateOrderPayload(items, storeOwnerId);
+    res.json(result);
+  });
 
   // Serve static files / Vite middleware
   if (process.env.NODE_ENV !== 'production') {
