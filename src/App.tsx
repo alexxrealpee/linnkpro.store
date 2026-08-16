@@ -314,14 +314,19 @@ export default function App() {
 
       {view === 'carruselproduc' && (
         <CarruselProduc
-          onNavigateHome={handleNavigateHome}
+          onNavigateHome={() => {
+            window.history.pushState({}, '', '/tienda');
+            setTargetUsername(null);
+            setView('tienda');
+          }}
           onNavigateToStore={(username) => {
             window.history.pushState({}, '', '/' + username);
             setTargetUsername(username);
             setView('profile');
           }}
           onNavigateToTienda={() => {
-            window.history.pushState({}, '', '/');
+            window.history.pushState({}, '', '/tienda');
+            setTargetUsername(null);
             setView('tienda');
           }}
         />

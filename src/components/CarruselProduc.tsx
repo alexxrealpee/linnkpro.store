@@ -161,6 +161,17 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
     }
   };
 
+  // Dedicated navigation to Tienda General (linnkpro.store/tienda)
+  const handleGoToTienda = () => {
+    if (onNavigateToTienda) {
+      onNavigateToTienda();
+    } else if (onNavigateHome) {
+      onNavigateHome();
+    } else {
+      window.location.href = '/tienda';
+    }
+  };
+
   if (loading) {
     return <PwaLoadingScreen message="Cargando directorio gastronómico de Ipiales..." />;
   }
@@ -176,10 +187,10 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
           En este momento no hay productos en el carrusel. Vuelve más tarde o explora las tiendas públicas.
         </p>
         <button
-          onClick={onNavigateHome}
-          className="px-6 py-3 bg-[#E63946] hover:bg-[#d62839] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-[#E63946]/20"
+          onClick={handleGoToTienda}
+          className="px-6 py-3 bg-[#E63946] hover:bg-[#d62839] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-[#E63946]/20 cursor-pointer"
         >
-          Volver al Inicio
+          Volver a la Tienda
         </button>
       </div>
     );
@@ -234,9 +245,9 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
           {/* Store Info */}
           <div className="flex items-center gap-2.5">
             <button 
-              onClick={onNavigateHome}
-              className="p-2 bg-black/40 hover:bg-black/80 backdrop-blur-md rounded-full text-white/90 border border-white/10 transition mr-1"
-              title="Volver al inicio"
+              onClick={handleGoToTienda}
+              className="p-2 bg-black/40 hover:bg-black/80 backdrop-blur-md rounded-full text-white/90 border border-white/10 transition mr-1 cursor-pointer"
+              title="Volver a la tienda"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -464,8 +475,8 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
       {/* Fixed Bottom Navigation Footer */}
       <div className="absolute bottom-0 left-0 right-0 z-30 p-3 bg-gradient-to-t from-black via-black/90 to-transparent flex items-center justify-between max-w-2xl mx-auto px-4">
         <button
-          onClick={onNavigateHome}
-          className="text-xs font-bold text-gray-400 hover:text-white flex items-center gap-1.5 transition"
+          onClick={handleGoToTienda}
+          className="text-xs font-bold text-gray-400 hover:text-white flex items-center gap-1.5 transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Inicio</span>
@@ -480,17 +491,17 @@ export default function CarruselProduc({ onNavigateHome, onNavigateToStore, onNa
         {onNavigateToTienda ? (
           <button
             onClick={onNavigateToTienda}
-            className="text-xs font-bold text-[#F4B400] hover:text-amber-300 flex items-center gap-1 transition"
+            className="text-xs font-bold text-[#F4B400] hover:text-amber-300 flex items-center gap-1 transition cursor-pointer"
           >
             <span>Ver Vitrina</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
           <button
-            onClick={onNavigateHome}
-            className="text-xs font-bold text-[#F4B400] hover:text-amber-300 flex items-center gap-1 transition"
+            onClick={handleGoToTienda}
+            className="text-xs font-bold text-[#F4B400] hover:text-amber-300 flex items-center gap-1 transition cursor-pointer"
           >
-            <span>LinnkPro.store</span>
+            <span>LinnkPro Tienda</span>
           </button>
         )}
       </div>
