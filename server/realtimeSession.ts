@@ -6,7 +6,7 @@
 import express from 'express';
 import { getAvailableCatalog } from './catalogManager';
 
-const OPENAI_API_URL = 'https://api.openai.com/v1/realtime/sessions';
+const OPENAI_CLIENT_SECRETS_URL = 'https://api.openai.com/v1/realtime/client_secrets';
 
 export async function createRealtimeSessionHandler(req: express.Request, res: express.Response, apiKey: string) {
   try {
@@ -204,74 +204,43 @@ HERRAMIENTAS EN TIEMPO REAL:
       }
     ];
 
-    const candidateRealtimeModels = [
-      "gpt-realtime-2.1",
-      "gpt-4o-realtime-preview-2024-12-17",
-      "gpt-4o-realtime-preview",
-      "gpt-4o-mini-realtime-preview"
-    ];
+    const sessionPayload = {
+      type: "realtime",
+      model: "gpt-realtime-2.1"
+    };
 
-    let sessionData: any = null;
-    let lastError: any = null;
+    const response = await fetch(OPENAI_CLIENT_SECRETS_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        session: sessionPayload
+      })
+    });
 
-    for (const modelName of candidateRealtimeModels) {
-      try {
-        const response = await fetch(OPENAI_API_URL, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: modelName,
-            voice: "marin",
-            modalities: ["audio", "text"],
-            instructions,
-            tools,
-            input_audio_transcription: {
-              model: "whisper-1"
-            },
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 800,
-              create_response: true
-            }
-          })
-        });
-
-        if (response.ok) {
-          sessionData = await response.json();
-          if (sessionData && !sessionData.model) {
-            sessionData.model = modelName;
-          }
-          break;
-        } else {
-          const errText = await response.text();
-          try {
-            lastError = JSON.parse(errText);
-          } catch {
-            lastError = { message: errText };
-          }
-          console.warn(`Model ${modelName} returned status ${response.status}:`, lastError?.error?.message || lastError);
-        }
-      } catch (err: any) {
-        lastError = err;
-      }
-    }
-
-    if (!sessionData) {
-      res.status(400).json({
-        error: lastError?.error?.message || "Error al generar sesión efímera con gpt-realtime-2.1 en OpenAI Realtime API",
-        details: lastError
-      });
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
       return;
     }
 
-    res.json(sessionData);
+    const errText = await response.text();
+    let parsedErr: any = null;
+    try {
+      parsedErr = JSON.parse(errText);
+    } catch {
+      parsedErr = { message: errText };
+    }
+    console.error(`OpenAI Realtime client_secrets error (${response.status}):`, parsedErr);
+
+    res.status(response.status).json({
+      error: parsedErr?.error?.message || parsedErr?.message || "Error al generar client_secret efímero con gpt-realtime-2.1 en OpenAI",
+      details: parsedErr
+    });
   } catch (error: any) {
-    console.error("Error creating OpenAI Realtime Session:", error);
+    console.error("Error creating OpenAI Realtime client_secret:", error);
     res.status(500).json({
       error: error.message || "Error interno del servidor al crear sesión de voz Realtime."
     });
