@@ -1374,27 +1374,27 @@ export default function LinnkProVoiceAssistant({
               className="w-full sm:w-[480px] h-[92vh] sm:h-[680px] max-h-[95vh] bg-[#090B12] border border-[#E63946]/40 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-gray-100 relative"
             >
               {/* Top Header Bar */}
-              <div className="px-5 py-4 bg-[#0B0F19] border-b border-slate-800/80 flex items-center justify-between z-10">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-[#EF4444] flex items-center justify-center text-white shadow-lg shadow-red-500/30 flex-shrink-0">
-                    <ConciergeBell className="w-6 h-6 text-white" />
+              <div className="px-3.5 sm:px-5 py-2.5 sm:py-3.5 bg-[#0B0F19] border-b border-slate-800/80 flex items-center justify-between z-10 w-full flex-shrink-0">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 mr-1 sm:mr-2">
+                  <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#EF4444] flex items-center justify-center text-white shadow-md shadow-red-500/30 flex-shrink-0">
+                    <ConciergeBell className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-white leading-none">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-sm sm:text-base font-bold text-white leading-none truncate">
                         IAMesero
                       </h3>
-                      <span className="px-2.5 py-0.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 text-[11px] font-semibold rounded-full">
+                      <span className="px-1.5 sm:px-2 py-0.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 text-[9px] sm:text-[10px] font-semibold rounded-full flex-shrink-0">
                         ChatGPT
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">Mesero Virtual IA por Voz</p>
+                    <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">Mesero Virtual IA por Voz</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                   {/* View Mode Switcher (Voz vs Chat) */}
-                  <div className="bg-[#131926]/90 p-1 rounded-full border border-slate-800 flex items-center">
+                  <div className="bg-[#131926]/90 p-0.5 sm:p-1 rounded-full border border-slate-800 flex items-center">
                     <button
                       onClick={() => {
                         setActiveTab('call');
@@ -1402,13 +1402,13 @@ export default function LinnkProVoiceAssistant({
                           startVoiceCall();
                         }
                       }}
-                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold transition flex items-center gap-1 sm:gap-1.5 ${
                         activeTab === 'call' 
                           ? 'bg-[#EF4444] text-white shadow-sm' 
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      <Radio className="w-3.5 h-3.5" />
+                      <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       Voz
                     </button>
                     <button
@@ -1416,26 +1416,29 @@ export default function LinnkProVoiceAssistant({
                         endVoiceCall();
                         setActiveTab('chat');
                       }}
-                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 ${
+                      className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold transition flex items-center gap-1 sm:gap-1.5 ${
                         activeTab === 'chat' 
                           ? 'bg-[#EF4444] text-white shadow-sm' 
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
+                      <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       Chat
                     </button>
                   </div>
 
+                  {/* Explicit X Close Button (Always visible and comfortably tappable on mobile) */}
                   <button
                     id="linnkpro-voice-close-btn"
                     onClick={() => {
+                      endVoiceCall();
                       setIsOpen(false);
                     }}
-                    className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800/60 transition"
-                    title="Minimizar ventana"
+                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#182030] hover:bg-red-500/20 text-slate-300 hover:text-white border border-slate-700/80 flex items-center justify-center transition active:scale-95 flex-shrink-0"
+                    title="Cerrar IAMesero"
+                    aria-label="Cerrar"
                   >
-                    <ChevronDown className="w-5 h-5" />
+                    <X className="w-4 h-4 sm:w-5 sm:h-5 text-slate-200 hover:text-white" />
                   </button>
                 </div>
               </div>
