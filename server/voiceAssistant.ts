@@ -762,26 +762,42 @@ export function executeAssistantToolCall(
   return { action: null, resultText: 'Acción ejecutada.' };
 }
 
-// Generate OpenAI Text-to-Speech (ChatGPT Voice)
-export async function generateOpenAITTS(openai: OpenAI, text: string): Promise<{ audio: string; mimeType: string }> {
-  const cleanText = text
+// Helper function to turn Colombian peso amounts and numbers into natural spoken Spanish words
+function convertNumbersToNaturalSpokenSpanish(text: string): string {
+  return text
+    // Emojis and markdown removal
+    .replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+    .replace(/[*_#`~>]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    // Multipliers (e.g. 1x, 2x)
+    .replace(/\b1x\s+/gi, 'una porción de ')
+    .replace(/\b2x\s+/gi, 'dos porciones de ')
+    .replace(/\b3x\s+/gi, 'tres porciones de ')
+    // Currency conversions to natural words
+    .replace(/\$\s*([0-9]{1,3})\.000\s*(?:COP|cop|pesos)?/gi, '$1 mil pesos')
+    .replace(/\$\s*([0-9]{1,3})\.500\s*(?:COP|cop|pesos)?/gi, '$1 mil quinientos pesos')
     .replace(/\$\s*([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)?/gi, '$1 pesos')
     .replace(/([0-9]+(?:[.,][0-9]+)*)\s*(?:COP|cop)/gi, '$1 pesos')
     .replace(/\$/g, '')
     .replace(/\bd[oó]lares\b/gi, 'pesos')
     .replace(/\bd[oó]lar\b/gi, 'peso')
-    .replace(/[*_#`~]/g, '')
-    .replace(/https?:\/\/\S+/g, '')
     .replace(/([0-9]+)\.000\s*pesos/gi, '$1 mil pesos')
     .replace(/([0-9]+)\.500\s*pesos/gi, '$1 mil quinientos pesos')
-    .trim()
-    .substring(0, 450);
+    .replace(/([0-9]+)\.([0-9]{3})\s*pesos/gi, '$1 mil $2 pesos')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Generate OpenAI Text-to-Speech (ChatGPT Voice with HD Ultra-Natural Audio)
+export async function generateOpenAITTS(openai: OpenAI, text: string): Promise<{ audio: string; mimeType: string }> {
+  const cleanText = convertNumbersToNaturalSpokenSpanish(text).substring(0, 500);
 
   const mp3Response = await openai.audio.speech.create({
-    model: "tts-1",
-    voice: "nova", // nova is a natural, conversational, fluent voice in Spanish
+    model: "tts-1-hd", // High-Definition neural model for rich, human-like voice quality
+    voice: "coral",   // Warm, highly expressive, natural human conversational voice for Spanish
     input: cleanText,
-    response_format: "mp3"
+    response_format: "mp3",
+    speed: 1.0
   });
 
   const buffer = Buffer.from(await mp3Response.arrayBuffer());

@@ -377,7 +377,8 @@ Formatos válidos para:
 
       if (ai) {
         const candidateModels = [
-          'gemini-3.1-flash-tts-preview'
+          'gemini-3.1-flash-tts-preview',
+          'gemini-2.5-flash'
         ];
 
         let audioPart: any = null;
