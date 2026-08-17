@@ -39,6 +39,7 @@ import {
   Headphones,
   Tag
 } from 'lucide-react';
+import LinnkProLogo from './LinnkProLogo';
 
 interface LandingPageProps {
   onNavigate: (view: 'landing' | 'login' | 'signup' | 'dashboard' | 'admin' | 'tienda' | 'driver-register' | 'driver-portal', usernameToClaim?: string) => void;
@@ -140,14 +141,12 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
       {/* Navigation Header */}
       <header className="border-b border-[#232B3A] backdrop-blur-md sticky top-0 z-50 bg-[#090B12]/95">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-3.5 md:py-4 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
-          <div className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" onClick={() => onNavigate('landing')}>
-            <div className="bg-[#E63946] p-1.5 sm:p-2 rounded-xl sm:rounded-2xl text-black shadow-md flex items-center justify-center">
-              <Store className="w-5 h-5 sm:w-6 sm:h-6 text-black stroke-[2.5]" />
-            </div>
-            <span className="font-extrabold text-base sm:text-xl md:text-2xl tracking-tight text-white lowercase">
-              linnkpro<span className="text-[#F4B400]">.store</span>
-            </span>
-          </div>
+          <LinnkProLogo 
+            onClick={() => onNavigate('landing')}
+            iconSize={38}
+            textSize="text-base sm:text-xl md:text-2xl"
+            roundedClassName="rounded-xl sm:rounded-2xl"
+          />
           
           <div className="flex items-center justify-center sm:justify-end gap-2.5 sm:gap-4 w-full sm:w-auto">
             <button 

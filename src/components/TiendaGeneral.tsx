@@ -28,6 +28,7 @@ import { ProductItem, UserProfile, OrderItem } from '../types';
 import { fetchAllActiveProductsAndStores, saveOrder, fetchSystemSettings, checkIsStoreClosed, findStoreForProduct } from '../lib/firebase';
 import { cleanColombianPhone, formatColombianPhoneWith57 } from './PublicProfile';
 import PwaLoadingScreen from './PwaLoadingScreen';
+import LinnkProLogo from './LinnkProLogo';
 
 export const isFoodCategory = (cat?: string): boolean => {
   if (!cat || cat === 'all' || cat === 'Todos') return false;
@@ -538,14 +539,12 @@ export default function TiendaGeneral({ onNavigateHome, onNavigateToStore }: Tie
             <span className="sm:hidden">Ayuda</span>
           </button>
 
-          <div className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" onClick={onNavigateHome}>
-            <div className="bg-[#E63946] p-1.5 sm:p-2 rounded-xl text-black shadow-md flex items-center justify-center">
-              <Store className="w-5 h-5 sm:w-6 sm:h-6 text-black stroke-[2.5]" />
-            </div>
-            <span className="font-extrabold text-base sm:text-xl tracking-tight text-white lowercase">
-              linnkpro<span className="text-[#F4B400]">.store</span>
-            </span>
-          </div>
+          <LinnkProLogo 
+            onClick={onNavigateHome} 
+            iconSize={36} 
+            textSize="text-base sm:text-xl"
+            roundedClassName="rounded-xl sm:rounded-2xl"
+          />
 
           <div className="flex items-center gap-2.5">
             {/* Carrusel Stories Button in header for desktop */}

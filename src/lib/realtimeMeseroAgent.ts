@@ -623,22 +623,54 @@ export class RealtimeMeseroManager {
       this.localStream = mediaStream;
 
       // 2. Fetch ephemeral Realtime session token from our secure backend
-      const sessionResponse = await fetch('/api/realtime/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
+      const endpointCandidates = [
+        '/api/realtime/session',
+        '/api/realtime-session',
+        '/api/realtime/client_secrets'
+      ];
 
-      if (!sessionResponse.ok) {
-        const errData = await sessionResponse.json().catch(() => ({}));
-        throw new Error(errData.error || `Error ${sessionResponse.status} al crear sesión Realtime.`);
+      let ephemeralKey: string | null = null;
+      let lastErrorMessage = '';
+
+      for (const endpoint of endpointCandidates) {
+        try {
+          const sessionResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({})
+          });
+
+          const responseText = await sessionResponse.text();
+          let sessionData: any = null;
+
+          try {
+            sessionData = JSON.parse(responseText);
+          } catch (pErr) {
+            // Response was not JSON (e.g. HTML 404/200 page from static proxy)
+            lastErrorMessage = `Endpoint ${endpoint} retornó HTML o formato no válido`;
+            continue;
+          }
+
+          if (!sessionResponse.ok) {
+            lastErrorMessage = sessionData?.error || `Error ${sessionResponse.status} en ${endpoint}`;
+            continue;
+          }
+
+          const token = sessionData?.value || sessionData?.client_secret?.value;
+          if (token) {
+            ephemeralKey = token;
+            break;
+          }
+        } catch (fetchErr: any) {
+          lastErrorMessage = fetchErr?.message || 'Error de conexión';
+        }
       }
 
-      const sessionData = await sessionResponse.json();
-      const ephemeralKey = sessionData.value || sessionData.client_secret?.value;
-
       if (!ephemeralKey) {
-        throw new Error("No se recibió token efímero de OpenAI Realtime.");
+        throw new Error(lastErrorMessage || "No se pudo obtener el token efímero de OpenAI Realtime. Por favor intenta de nuevo.");
       }
 
       // 3. Build Realtime Agent with all 12 tools and strict availableCatalog directive

@@ -306,40 +306,45 @@ export default function LinnkProVoiceAssistant({
 
     // Start OpenAI Realtime WebRTC continuous voice session
     try {
-      if (!realtimeManagerRef.current) {
-        realtimeManagerRef.current = new RealtimeMeseroManager({
-          onStateChange: (state) => {
-            setAssistantState(state);
-            assistantStateRef.current = state;
-          },
-          onTranscriptDelta: (text, isFinal, sender) => {
-            if (sender === 'user') {
-              setTranscript(text);
-              if (isFinal) {
-                setMessages(prev => [
-                  ...prev,
-                  { id: 'usr_' + Date.now(), sender: 'user', text, timestamp: new Date() }
-                ]);
-              }
-            } else {
-              setTranscript(text);
-              if (isFinal) {
-                setMessages(prev => [
-                  ...prev,
-                  { id: 'asst_' + Date.now(), sender: 'assistant', text, timestamp: new Date() }
-                ]);
-              }
-            }
-          },
-          onCartUpdated: (updatedCart) => {
-            setCart(updatedCart);
-          },
-          onError: (err) => {
-            console.warn("Realtime WebRTC connection notice:", err);
-            setMicPermissionError(typeof err === 'string' ? err : 'Error al conectar micrófono o sesión de voz.');
-          }
-        });
+      if (realtimeManagerRef.current) {
+        try {
+          realtimeManagerRef.current.stop();
+        } catch (e) {}
+        realtimeManagerRef.current = null;
       }
+
+      realtimeManagerRef.current = new RealtimeMeseroManager({
+        onStateChange: (state) => {
+          setAssistantState(state);
+          assistantStateRef.current = state;
+        },
+        onTranscriptDelta: (text, isFinal, sender) => {
+          if (sender === 'user') {
+            setTranscript(text);
+            if (isFinal) {
+              setMessages(prev => [
+                ...prev,
+                { id: 'usr_' + Date.now(), sender: 'user', text, timestamp: new Date() }
+              ]);
+            }
+          } else {
+            setTranscript(text);
+            if (isFinal) {
+              setMessages(prev => [
+                ...prev,
+                { id: 'asst_' + Date.now(), sender: 'assistant', text, timestamp: new Date() }
+              ]);
+            }
+          }
+        },
+        onCartUpdated: (updatedCart) => {
+          setCart(updatedCart);
+        },
+        onError: (err) => {
+          console.warn("Realtime WebRTC connection notice:", err);
+          setMicPermissionError(typeof err === 'string' ? err : 'Error al conectar micrófono o sesión de voz.');
+        }
+      });
 
       await realtimeManagerRef.current.start();
     } catch (realtimeErr: any) {

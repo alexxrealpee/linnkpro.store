@@ -204,40 +204,58 @@ HERRAMIENTAS EN TIEMPO REAL:
       }
     ];
 
-    const sessionPayload = {
-      type: "realtime",
-      model: "gpt-realtime-2.1"
-    };
+    const candidateRealtimeModels = [
+      "gpt-realtime-2.1",
+      "gpt-4o-realtime-preview-2024-12-17",
+      "gpt-4o-realtime-preview",
+      "gpt-4o-mini-realtime-preview"
+    ];
 
-    const response = await fetch(OPENAI_CLIENT_SECRETS_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        session: sessionPayload
-      })
-    });
+    let sessionData: any = null;
+    let lastError: any = null;
 
-    if (response.ok) {
-      const data = await response.json();
-      res.json(data);
+    for (const modelName of candidateRealtimeModels) {
+      try {
+        const response = await fetch(OPENAI_CLIENT_SECRETS_URL, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            session: {
+              type: "realtime",
+              model: modelName
+            }
+          })
+        });
+
+        if (response.ok) {
+          sessionData = await response.json();
+          break;
+        } else {
+          const errText = await response.text();
+          try {
+            lastError = JSON.parse(errText);
+          } catch {
+            lastError = { message: errText };
+          }
+          console.warn(`Model ${modelName} on client_secrets returned ${response.status}:`, lastError?.error?.message || lastError);
+        }
+      } catch (err: any) {
+        lastError = err;
+      }
+    }
+
+    if (sessionData) {
+      res.json(sessionData);
       return;
     }
 
-    const errText = await response.text();
-    let parsedErr: any = null;
-    try {
-      parsedErr = JSON.parse(errText);
-    } catch {
-      parsedErr = { message: errText };
-    }
-    console.error(`OpenAI Realtime client_secrets error (${response.status}):`, parsedErr);
-
-    res.status(response.status).json({
-      error: parsedErr?.error?.message || parsedErr?.message || "Error al generar client_secret efímero con gpt-realtime-2.1 en OpenAI",
-      details: parsedErr
+    console.error("OpenAI Realtime client_secrets all candidate models error:", lastError);
+    res.status(400).json({
+      error: lastError?.error?.message || lastError?.message || "Error al generar client_secret efímero con OpenAI Realtime",
+      details: lastError
     });
   } catch (error: any) {
     console.error("Error creating OpenAI Realtime client_secret:", error);

@@ -73,6 +73,18 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS & Header middleware for API requests (supports custom domains like linnkpro.store)
+  app.use('/api', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   // Body parsing middleware with expanded limit for catalog, audio and voice requests
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -307,14 +319,16 @@ Formatos válidos para:
   app.post('/api/gemini/voice-assistant', handleVoiceAssistantRequest); // Endpoint alias for backward compatibility
 
   // API Route: OpenAI Realtime Voice WebRTC Session (Secure Ephemeral Token Provisioning)
-  app.post('/api/realtime/session', async (req, res) => {
+  const handleRealtimeSession = async (req: express.Request, res: express.Response) => {
     const apiKey = process.env.OPENAI_API_KEY;
-    await createRealtimeSessionHandler(req, res, apiKey);
-  });
-  app.post('/api/realtime-session', async (req, res) => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    await createRealtimeSessionHandler(req, res, apiKey);
-  });
+    await createRealtimeSessionHandler(req, res, apiKey || '');
+  };
+  app.post('/api/realtime/session', handleRealtimeSession);
+  app.post('/api/realtime-session', handleRealtimeSession);
+  app.post('/api/realtime/client_secrets', handleRealtimeSession);
+  app.post('/api/realtime/client-secrets', handleRealtimeSession);
+  app.get('/api/realtime/session', handleRealtimeSession);
+  app.get('/api/realtime-session', handleRealtimeSession);
 
   // API Route: LinnkPro AI Voice Text-to-Speech (TTS) (Powered strictly by OpenAI High Definition TTS)
   const handleTTSRequest = async (req: express.Request, res: express.Response) => {
